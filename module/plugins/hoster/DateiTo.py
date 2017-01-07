@@ -2,22 +2,17 @@
 
 import re
 
-from module.plugins.captcha.ReCaptcha import ReCaptcha
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.plugins.internal.CaptchaService import ReCaptcha
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class DateiTo(SimpleHoster):
     __name__    = "DateiTo"
     __type__    = "hoster"
-    __version__ = "0.13"
-    __status__  = "testing"
+    __version__ = "0.07"
 
     __pattern__ = r'http://(?:www\.)?datei\.to/datei/(?P<ID>\w+)\.html'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Datei.to hoster plugin"""
     __license__     = "GPLv3"
@@ -29,46 +24,60 @@ class DateiTo(SimpleHoster):
     OFFLINE_PATTERN = r'>Datei wurde nicht gefunden<|>Bitte wähle deine Datei aus... <'
 
     WAIT_PATTERN    = r'countdown\({seconds: (\d+)'
-    DOWNLOAD_PATTERN = r'>Du lädst bereits eine Datei herunter'
+    MULTIDL_PATTERN = r'>Du lädst bereits eine Datei herunter<'
 
     DATA_PATTERN = r'url: "(.*?)", data: "(.*?)",'
 
 
-    def handle_free(self, pyfile):
+    def handleFree(self, pyfile):
         url = 'http://datei.to/ajax/download.php'
         data = {'P': 'I', 'ID': self.info['pattern']['ID']}
-        self.captcha = ReCaptcha(pyfile)
+        recaptcha = ReCaptcha(self)
 
-        for _i in xrange(3):
-            self.log_debug("URL", url, "POST", data)
-            self.data = self.load(url, post=data)
-            self.check_errors()
+        for _i in xrange(10):
+            self.logDebug("URL", url, "POST", data)
+            self.html = self.load(url, post=data)
+            self.checkErrors()
 
             if url.endswith('download.php') and 'P' in data:
-                if data['P'] == "I":
-                    self.do_wait()
+                if data['P'] == 'I':
+                    self.doWait()
 
-                elif data['P'] == "IV":
+                elif data['P'] == 'IV':
                     break
 
-            m = re.search(self.DATA_PATTERN, self.data)
+            m = re.search(self.DATA_PATTERN, self.html)
             if m is None:
-                self.error(_("Data pattern not found"))
-
+                self.error(_("data"))
             url = 'http://datei.to/' + m.group(1)
             data = dict(x.split('=') for x in m.group(2).split('&'))
 
-            if url.endswith('self.captcha.php'):
-                data['recaptcha_response_field'], data['recaptcha_challenge_field'] = self.captcha.challenge()
+            if url.endswith('recaptcha.php'):
+                data['recaptcha_response_field'], data['recaptcha_challenge_field'] = recaptcha.challenge()
         else:
-            return
+            self.fail(_("Too bad..."))
 
-        self.link = self.data
+        self.download(self.html)
 
 
-    def do_wait(self):
-        m = re.search(self.WAIT_PATTERN, self.data)
+    def checkErrors(self):
+        m = re.search(self.MULTIDL_PATTERN, self.html)
+        if m:
+            m = re.search(self.WAIT_PATTERN, self.html)
+            wait_time = int(m.group(1)) if m else 30
+
+            errmsg = self.info['error'] = _("Parallel downloads")
+            self.retry(wait_time=wait_time, reason=errmsg)
+
+        self.info.pop('error', None)
+
+
+    def doWait(self):
+        m = re.search(self.WAIT_PATTERN, self.html)
         wait_time = int(m.group(1)) if m else 30
 
         self.load('http://datei.to/ajax/download.php', post={'P': 'Ads'})
         self.wait(wait_time, False)
+
+
+getInfo = create_getInfo(DateiTo)

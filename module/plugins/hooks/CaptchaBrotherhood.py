@@ -3,20 +3,18 @@
 from __future__ import with_statement
 
 import StringIO
-import time
-import urllib
-
 import pycurl
+import time
 
 try:
     from PIL import Image
-
 except ImportError:
     import Image
 
-from module.network.RequestFactory import getRequest as get_request
-from module.plugins.internal.Addon import Addon
-from module.plugins.internal.misc import threaded
+from urllib import urlencode
+
+from module.network.RequestFactory import getURL, getRequest
+from module.plugins.Hook import Hook, threaded
 
 
 class CaptchaBrotherhoodException(Exception):
@@ -25,7 +23,7 @@ class CaptchaBrotherhoodException(Exception):
         self.err = err
 
 
-    def get_code(self):
+    def getCode(self):
         return self.err
 
 
@@ -37,16 +35,14 @@ class CaptchaBrotherhoodException(Exception):
         return "<CaptchaBrotherhoodException %s>" % self.err
 
 
-class CaptchaBrotherhood(Addon):
+class CaptchaBrotherhood(Hook):
     __name__    = "CaptchaBrotherhood"
     __type__    = "hook"
-    __version__ = "0.14"
-    __status__  = "testing"
+    __version__ = "0.08"
 
-    __config__ = [("activated"   , "bool"    , "Activated"                       , False),
-                  ("username"    , "str"     , "Username"                        , ""   ),
-                  ("password"    , "password", "Password"                        , ""   ),
-                  ("check_client", "bool"    , "Don't use if client is connected", True )]
+    __config__ = [("username", "str", "Username", ""),
+                  ("force", "bool", "Force CT even if client is connected", False),
+                  ("passkey", "password", "Password", "")]
 
     __description__ = """Send captchas to CaptchaBrotherhood.com"""
     __license__     = "GPLv3"
@@ -54,17 +50,23 @@ class CaptchaBrotherhood(Addon):
                        ("zoidberg", "zoidberg@mujmail.cz")]
 
 
+    interval = 0  #@TODO: Remove in 0.4.10
+
     API_URL = "http://www.captchabrotherhood.com/"
 
 
-    def get_credits(self):
-        res = self.load(self.API_URL + "askCredits.aspx",
-                     get={'username': self.config.get('username'), 'password': self.config.get('password')})
+    def setup(self):
+        self.info = {}  #@TODO: Remove in 0.4.10
+
+
+    def getCredits(self):
+        res = getURL(self.API_URL + "askCredits.aspx",
+                     get={"username": self.getConfig('username'), "password": self.getConfig('passkey')})
         if not res.startswith("OK"):
             raise CaptchaBrotherhoodException(res)
         else:
             credits = int(res[3:])
-            self.log_info(_("%d credits left") % credits)
+            self.logInfo(_("%d credits left") % credits)
             self.info['credits'] = credits
             return credits
 
@@ -73,7 +75,7 @@ class CaptchaBrotherhood(Addon):
         try:
             img = Image.open(captcha)
             output = StringIO.StringIO()
-            self.log_debug("CAPTCHA IMAGE", img, img.format, img.mode)
+            self.logDebug("CAPTCHA IMAGE", img, img.format, img.mode)
             if img.format in ("GIF", "JPEG"):
                 img.save(output, img.format)
             else:
@@ -82,17 +84,16 @@ class CaptchaBrotherhood(Addon):
                 img.save(output, "JPEG")
             data = output.getvalue()
             output.close()
-
         except Exception, e:
             raise CaptchaBrotherhoodException("Reading or converting captcha image failed: %s" % e)
 
-        req = get_request()
+        req = getRequest()
 
         url = "%ssendNewCaptcha.aspx?%s" % (self.API_URL,
-                                            urllib.urlencode({'username'     : self.config.get('username'),
-                                                              'password'     : self.config.get('password'),
-                                                              'captchaSource': "pyLoad",
-                                                              'timeout'      : "80"}))
+                                            urlencode({'username'     : self.getConfig('username'),
+                                                       'password'     : self.getConfig('passkey'),
+                                                       'captchaSource': "pyLoad",
+                                                       'timeout'      : "80"}))
 
         req.c.setopt(pycurl.URL, url)
         req.c.setopt(pycurl.POST, 1)
@@ -102,7 +103,6 @@ class CaptchaBrotherhood(Addon):
         try:
             req.c.perform()
             res = req.getResponse()
-
         except Exception, e:
             raise CaptchaBrotherhoodException("Submit captcha image failed")
 
@@ -123,50 +123,50 @@ class CaptchaBrotherhood(Addon):
 
 
     def api_response(self, api, ticket):
-        res = self.load("%s%s.aspx" % (self.API_URL, api),
-                          get={'username': self.config.get('username'),
-                               'password': self.config.get('password'),
-                               'captchaID': ticket})
+        res = getURL("%s%s.aspx" % (self.API_URL, api),
+                          get={"username": self.getConfig('username'),
+                               "password": self.getConfig('passkey'),
+                               "captchaID": ticket})
         if not res.startswith("OK"):
             raise CaptchaBrotherhoodException("Unknown response: %s" % res)
 
         return res
 
 
-    def captcha_task(self, task):
+    def newCaptchaTask(self, task):
         if "service" in task.data:
             return False
 
         if not task.isTextual():
             return False
 
-        if not self.config.get('username') or not self.config.get('password'):
+        if not self.getConfig('username') or not self.getConfig('passkey'):
             return False
 
-        if self.pyload.isClientConnected() and self.config.get('check_client'):
+        if self.core.isClientConnected() and not self.getConfig('force'):
             return False
 
-        if self.get_credits() > 10:
+        if self.getCredits() > 10:
             task.handler.append(self)
-            task.data['service'] = self.classname
+            task.data['service'] = self.__name__
             task.setWaiting(100)
-            self._process_captcha(task)
+            self._processCaptcha(task)
         else:
-            self.log_info(_("Your CaptchaBrotherhood Account has not enough credits"))
+            self.logInfo(_("Your CaptchaBrotherhood Account has not enough credits"))
 
 
-    def captcha_invalid(self, task):
-        if task.data['service'] == self.classname and "ticket" in task.data:
-            self.api_response("complainCaptcha", task.data['ticket'])
+    def captchaInvalid(self, task):
+        if task.data['service'] == self.__name__ and "ticket" in task.data:
+            res = self.api_response("complainCaptcha", task.data['ticket'])
 
 
     @threaded
-    def _process_captcha(self, task):
+    def _processCaptcha(self, task):
         c = task.captchaFile
         try:
             ticket, result = self.submit(c)
         except CaptchaBrotherhoodException, e:
-            task.error = e.get_code()
+            task.error = e.getCode()
             return
 
         task.data['ticket'] = ticket

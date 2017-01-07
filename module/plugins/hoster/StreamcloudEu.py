@@ -2,33 +2,30 @@
 
 import re
 
-from module.plugins.internal.XFSHoster import XFSHoster
+from module.plugins.internal.XFSHoster import XFSHoster, create_getInfo
 
 
 class StreamcloudEu(XFSHoster):
     __name__    = "StreamcloudEu"
     __type__    = "hoster"
-    __version__ = "0.15"
-    __status__  = "testing"
+    __version__ = "0.10"
 
     __pattern__ = r'http://(?:www\.)?streamcloud\.eu/\w{12}'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
 
     __description__ = """Streamcloud.eu hoster plugin"""
     __license__     = "GPLv3"
     __authors__     = [("seoester", "seoester@googlemail.com")]
 
 
-    PLUGIN_DOMAIN = "streamcloud.eu"
-
     WAIT_PATTERN = r'var count = (\d+)'
+
+    LINK_PATTERN = r'file: "(http://(stor|cdn)\d+\.streamcloud\.eu:?\d*/.*/video\.(mp4|flv))",'
 
 
     def setup(self):
         self.multiDL        = True
-        self.chunk_limit     = 1
-        self.resume_download = self.premium
+        self.chunkLimit     = 1
+        self.resumeDownload = self.premium
+
+
+getInfo = create_getInfo(StreamcloudEu)

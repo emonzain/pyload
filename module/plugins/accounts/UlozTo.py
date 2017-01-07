@@ -1,49 +1,50 @@
 # -*- coding: utf-8 -*-
 
 import re
-import urlparse
 
-from module.plugins.internal.Account import Account
+from urlparse import urljoin
+
+from module.plugins.Account import Account
 
 
 class UlozTo(Account):
     __name__    = "UlozTo"
     __type__    = "account"
-    __version__ = "0.21"
-    __status__  = "testing"
+    __version__ = "0.10"
 
     __description__ = """Uloz.to account plugin"""
     __license__     = "GPLv3"
     __authors__     = [("zoidberg", "zoidberg@mujmail.cz"),
-                       ("pulpe", None),
-                       ("ondrej", "git@ondrej.it"),]
+                       ("pulpe", None)]
 
 
-    TRAFFIC_LEFT_PATTERN = r'<span class="user"><i class="fa fa-user"></i> <em>.+</em> \(([^ ]+) ([MGT]+B)\)</span>'
+    TRAFFIC_LEFT_PATTERN = r'<li class="menu-kredit"><a .*?title="[^"]*?GB = ([\d.]+) MB"'
 
 
-    def grab_info(self, user, password, data):
-        html = self.load("https://www.ulozto.net/")
+    def loadAccountInfo(self, user, req):
+        html = req.load("http://www.ulozto.net/", decode=True)
 
         m = re.search(self.TRAFFIC_LEFT_PATTERN, html)
 
-        trafficleft = self.parse_traffic(m.group(1), m.group(2))
+        trafficleft = float(m.group(1).replace(' ', '').replace(',', '.')) * 1000 * 1.048 if m else 0
         premium     = True if trafficleft else False
 
         return {'validuntil': -1, 'trafficleft': trafficleft, 'premium': premium}
 
 
-    def signin(self, user, password, data):
-        login_page = self.load('https://www.ulozto.net/?do=web-login')
+    def login(self, user, data, req):
+        login_page = req.load('http://www.ulozto.net/?do=web-login', decode=True)
         action     = re.findall('<form action="(.+?)"', login_page)[1].replace('&amp;', '&')
         token      = re.search('_token_" value="(.+?)"', login_page).group(1)
 
-        html = self.load(urlparse.urljoin("https://www.ulozto.net/", action),
-                         post={'_token_' : token,
-                               '_do'      : "loginForm-submit",
-                               'login'   : u"Submit",
-                               'password': password,
-                               'username': user})
+        html = req.load(urljoin("http://www.ulozto.net/", action),
+                        post={'_token_' : token,
+                              'do'      : "loginForm-submit",
+                              'login'   : u"Přihlásit",
+                              'password': data['password'],
+                              'username': user,
+                              'remember': "on"},
+                        decode=True)
 
         if '<div class="flash error">' in html:
-            self.fail_login()
+            self.wrongPassword()

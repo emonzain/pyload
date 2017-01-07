@@ -1,25 +1,22 @@
 # -*- coding: utf-8 -*-
 
 import re
-import urllib
 
-from module.plugins.internal.MultiHoster import MultiHoster
-from module.plugins.internal.misc import json, parse_size
+from random import randrange
+from urllib import unquote
+
+from module.common.json_layer import json_loads
+from module.plugins.internal.MultiHoster import MultiHoster, create_getInfo
+from module.utils import parseFileSize
 
 
 class OverLoadMe(MultiHoster):
     __name__    = "OverLoadMe"
     __type__    = "hoster"
-    __version__ = "0.18"
-    __status__  = "testing"
+    __version__ = "0.11"
 
     __pattern__ = r'https?://.*overload\.me/.+'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True ),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True ),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , False),
-                   ("chk_filesize", "bool", "Check file size"                                  , True ),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10   ),
-                   ("revertfailed", "bool", "Revert to standard download if fails"             , True )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Over-Load.me multi-hoster plugin"""
     __license__     = "GPLv3"
@@ -27,24 +24,30 @@ class OverLoadMe(MultiHoster):
 
 
     def setup(self):
-        self.chunk_limit = 5
+        self.chunkLimit = 5
 
 
-    def handle_premium(self, pyfile):
-        data  = self.account.get_data()
-        page  = self.load("https://api.over-load.me/getdownload.php",
+    def handlePremium(self, pyfile):
+        https = "https" if self.getConfig('ssl') else "http"
+        data  = self.account.getAccountData(self.user)
+        page  = self.load(https + "://api.over-load.me/getdownload.php",
                           get={'auth': data['password'],
                                'link': pyfile.url})
 
-        data = json.loads(page)
+        data = json_loads(page)
 
-        self.log_debug(data)
+        self.logDebug(data)
 
         if data['error'] == 1:
-            self.log_warning(data['msg'])
-            self.temp_offline()
+            self.logWarning(data['msg'])
+            self.tempOffline()
         else:
-            self.link = data['downloadlink']
-            if pyfile.name and pyfile.name.endswith('.tmp') and data['filename']:
+            if pyfile.name is not None and pyfile.name.endswith('.tmp') and data['filename']:
                 pyfile.name = data['filename']
-                pyfile.size = parse_size(data['filesize'])
+                pyfile.size = parseFileSize(data['filesize'])
+
+            http_repl = ["http://", "https://"]
+            self.link = data['downloadlink'].replace(*http_repl if self.getConfig('ssl') else *http_repl[::-1])
+
+
+getInfo = create_getInfo(OverLoadMe)

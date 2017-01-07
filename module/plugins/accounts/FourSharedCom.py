@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 
-from module.plugins.internal.Account import Account
-from module.plugins.internal.misc import set_cookie
+from module.plugins.Account import Account
 
 
 class FourSharedCom(Account):
     __name__    = "FourSharedCom"
     __type__    = "account"
-    __version__ = "0.12"
-    __status__  = "testing"
+    __version__ = "0.04"
 
     __description__ = """FourShared.com account plugin"""
     __license__     = "GPLv3"
@@ -16,20 +14,21 @@ class FourSharedCom(Account):
                        ("stickell", "l.stickell@yahoo.it")]
 
 
-    def grab_info(self, user, password, data):
-        #: Free mode only for now
-        return {'premium': False}
+    def loadAccountInfo(self, user, req):
+        # Free mode only for now
+        return {"premium": False}
 
 
-    def signin(self, user, password, data):
-        set_cookie(self.req.cj, "4shared.com", "4langcookie", "en")
+    def login(self, user, data, req):
+        req.cj.setCookie("4shared.com", "4langcookie", "en")
 
-        res = self.load("https://www.4shared.com/web/login",
-                        post={'login'    : user,
-                              'password' : password,
-                              'remember' : "on",
-                              '_remember': "on",
-                              'returnTo' : "http://www.4shared.com/account/home.jsp"})
+        res = req.load("http://www.4shared.com/web/login",
+                       post={'login'    : user,
+                             'password' : data['password'],
+                             'remember' : "on",
+                             '_remember': "on",
+                             'returnTo' : "http://www.4shared.com/account/home.jsp"},
+                       decode=True)
 
         if 'Please log in to access your 4shared account' in res:
-            self.fail_login()
+            self.wrongPassword()

@@ -3,48 +3,39 @@
 import re
 import time
 
-from module.plugins.internal.Account import Account
-from module.plugins.internal.misc import json
+from module.plugins.Account import Account
 
 
 class EuroshareEu(Account):
     __name__    = "EuroshareEu"
     __type__    = "account"
-    __version__ = "0.11"
-    __status__  = "testing"
+    __version__ = "0.02"
 
     __description__ = """Euroshare.eu account plugin"""
     __license__     = "GPLv3"
-    __authors__     = [("zoidberg", "zoidberg@mujmail.cz"        ),
-                       ("GammaC0de", "nitzo2001[AT]yahoo[DOT]com")]
+    __authors__     = [("zoidberg", "zoidberg@mujmail.cz")]
 
 
-    def grab_info(self, user, password, data):
-        html = self.load("http://euroshare.eu/",
-                         get={'lang': "en"})
+    def loadAccountInfo(self, user, req):
+        self.relogin(user)
+        html = req.load("http://euroshare.eu/customer-zone/settings/")
 
-        m = re.search(r'<span class="btn btn--nav green darken-3">Premium account until: (\d+/\d+/\d+ \d+:\d+:\d+)<', html)
+        m = re.search('id="input_expire_date" value="(\d+\.\d+\.\d+ \d+:\d+)"', html)
         if m is None:
-            premium    = False
-            validuntil = -1
+            premium, validuntil = False, -1
         else:
             premium = True
-            validuntil = time.mktime(time.strptime(m.group(1), "%d/%m/%Y %H:%M:%S"))
+            validuntil = time.mktime(time.strptime(m.group(1), "%d.%m.%Y %H:%M"))
 
-        return {'validuntil': validuntil, 'trafficleft': -1, 'premium': premium}
+        return {"validuntil": validuntil, "trafficleft": -1, "premium": premium}
 
 
-    def signin(self, user, password, data):
-        html = self.load("http://euroshare.eu/login.html")
+    def login(self, user, data, req):
+        html = req.load('http://euroshare.eu/customer-zone/login/',
+                        post={"trvale": "1",
+                              "login": user,
+                              "password": data['password']},
+                        decode=True)
 
-        if r'href="http://euroshare.eu/logout.html"' in html:
-            self.skip_login()
-
-        json_data = json.loads(self.load("http://euroshare.eu/ajax/_account_login.ajax.php",
-                                         post={'username': user,
-                                               'password': password,
-                                               'remember': "false",
-                                               'backlink': ""}))
-
-        if json_data.get("login_status") != "success":
-            self.fail_login()
+        if u">Nesprávne prihlasovacie meno alebo heslo" in html:
+            self.wrongPassword()

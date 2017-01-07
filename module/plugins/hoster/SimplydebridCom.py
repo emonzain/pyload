@@ -2,31 +2,24 @@
 
 import re
 
-from module.plugins.internal.MultiHoster import MultiHoster
-from module.plugins.internal.misc import replace_patterns
+from module.plugins.internal.MultiHoster import MultiHoster, create_getInfo, replace_patterns
 
 
 class SimplydebridCom(MultiHoster):
     __name__    = "SimplydebridCom"
     __type__    = "hoster"
-    __version__ = "0.24"
-    __status__  = "testing"
+    __version__ = "0.17"
 
     __pattern__ = r'http://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/sd\.php'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True ),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True ),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , False),
-                   ("chk_filesize", "bool", "Check file size"                                  , True ),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10   ),
-                   ("revertfailed", "bool", "Revert to standard download if fails"             , True )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Simply-debrid.com multi-hoster plugin"""
     __license__     = "GPLv3"
     __authors__     = [("Kagenoshin", "kagenoshin@gmx.ch")]
 
 
-    def handle_premium(self, pyfile):
-        #: Fix the links for simply-debrid.com!
+    def handlePremium(self, pyfile):
+        #fix the links for simply-debrid.com!
         self.link = replace_patterns(pyfile.url, [("clz.to", "cloudzer.net/file")
                                                   ("http://share-online", "http://www.share-online")
                                                   ("ul.to", "uploaded.net/file")
@@ -37,17 +30,20 @@ class SimplydebridCom(MultiHoster):
         if 'fileparadox' in self.link:
             self.link = self.link.replace("http://", "https://")
 
-        self.data = self.load("http://simply-debrid.com/api.php", get={'dl': self.link})
-        if 'tiger Link' in self.data or 'Invalid Link' in self.data or ('API' in self.data and 'ERROR' in self.data):
+        self.html = self.load("http://simply-debrid.com/api.php", get={'dl': self.link})
+        if 'tiger Link' in self.html or 'Invalid Link' in self.html or ('API' in self.html and 'ERROR' in self.html):
             self.error(_("Unable to unrestrict link"))
 
-        self.link = self.data
+        self.link = self.html
 
         self.wait(5)
 
 
-    def check_download(self):
-        if self.scan_download({'error': "No address associated with hostname"}):
+    def checkFile(self, rules={}):
+        if self.checkDownload({"error": "No address associated with hostname"}):
             self.retry(24, 3 * 60, _("Bad file downloaded"))
 
-        return super(SimplydebridCom, self).check_download()
+        return super(SimplydebridCom, self).checkFile(rules)
+
+
+getInfo = create_getInfo(SimplydebridCom)

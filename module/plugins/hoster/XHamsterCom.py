@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 
 import re
-import urllib
 
-from module.plugins.internal.misc import json
-from module.plugins.internal.Hoster import Hoster
+from urllib import unquote
+
+from module.common.json_layer import json_loads
+from module.plugins.Hoster import Hoster
 
 
 def clean_json(json_expr):
@@ -18,12 +19,10 @@ def clean_json(json_expr):
 class XHamsterCom(Hoster):
     __name__    = "XHamsterCom"
     __type__    = "hoster"
-    __version__ = "0.17"
-    __status__  = "testing"
+    __version__ = "0.12"
 
     __pattern__ = r'http://(?:www\.)?xhamster\.com/movies/.+'
-    __config__  = [("activated", "bool", "Activated", True),
-                   ("type", ".mp4;.flv", "Preferred type", ".mp4")]
+    __config__  = [("type", ".mp4;.flv", "Preferred type", ".mp4")]
 
     __description__ = """XHamster.com hoster plugin"""
     __license__     = "GPLv3"
@@ -36,8 +35,8 @@ class XHamsterCom(Hoster):
         if not self.file_exists():
             self.offline()
 
-        if self.config.get('type'):
-            self.desired_fmt = self.config.get('type')
+        if self.getConfig('type'):
+            self.desired_fmt = self.getConfig('type')
 
         pyfile.name = self.get_file_name() + self.desired_fmt
         self.download(self.get_file_url())
@@ -45,24 +44,23 @@ class XHamsterCom(Hoster):
 
     def download_html(self):
         url = self.pyfile.url
-        self.data = self.load(url)
+        self.html = self.load(url)
 
 
     def get_file_url(self):
+        """ returns the absolute downloadable filepath
         """
-        Returns the absolute downloadable filepath
-        """
-        if not self.data:
+        if not self.html:
             self.download_html()
 
         flashvar_pattern = re.compile('flashvars = ({.*?});', re.S)
-        json_flashvar = flashvar_pattern.search(self.data)
+        json_flashvar = flashvar_pattern.search(self.html)
 
         if not json_flashvar:
             self.error(_("flashvar not found"))
 
         j = clean_json(json_flashvar.group(1))
-        flashvars = json.loads(j)
+        flashvars = json_loads(j)
 
         if flashvars['srv']:
             srv_url = flashvars['srv'] + '/'
@@ -77,44 +75,43 @@ class XHamsterCom(Hoster):
             self.error(_("url_mode not found"))
 
         if self.desired_fmt == ".mp4":
-            file_url = re.search(r'<a href=\"" + srv_url + "(.+?)\"', self.data)
+            file_url = re.search(r"<a href=\"" + srv_url + "(.+?)\"", self.html)
             if file_url is None:
                 self.error(_("file_url not found"))
-
             file_url = file_url.group(1)
             long_url = srv_url + file_url
-            self.log_debug("long_url = " + long_url)
+            self.logDebug("long_url = " + long_url)
         else:
             if flashvars['file']:
-                file_url = urllib.unquote(flashvars['file'])
+                file_url = unquote(flashvars['file'])
             else:
                 self.error(_("file_url not found"))
 
-            if url_mode == "3":
+            if url_mode == '3':
                 long_url = file_url
-                self.log_debug("long_url = " + long_url)
+                self.logDebug("long_url = " + long_url)
             else:
                 long_url = srv_url + "key=" + file_url
-                self.log_debug("long_url = " + long_url)
+                self.logDebug("long_url = " + long_url)
 
         return long_url
 
 
     def get_file_name(self):
-        if not self.data:
+        if not self.html:
             self.download_html()
 
         pattern = r'<title>(.*?) - xHamster\.com</title>'
-        name = re.search(pattern, self.data)
+        name = re.search(pattern, self.html)
         if name is None:
             pattern = r'<h1 >(.*)</h1>'
-            name = re.search(pattern, self.data)
+            name = re.search(pattern, self.html)
             if name is None:
                 pattern = r'http://[www.]+xhamster\.com/movies/.*/(.*?)\.html?'
                 name = re.match(file_name_pattern, self.pyfile.url)
                 if name is None:
                     pattern = r'<div id="element_str_id" style="display:none;">(.*)</div>'
-                    name = re.search(pattern, self.data)
+                    name = re.search(pattern, self.html)
                     if name is None:
                         return "Unknown"
 
@@ -122,12 +119,11 @@ class XHamsterCom(Hoster):
 
 
     def file_exists(self):
+        """ returns True or False
         """
-        Returns True or False
-        """
-        if not self.data:
+        if not self.html:
             self.download_html()
-        if re.search(r'(.*Video not found.*)', self.data):
+        if re.search(r"(.*Video not found.*)", self.html) is not None:
             return False
         else:
             return True

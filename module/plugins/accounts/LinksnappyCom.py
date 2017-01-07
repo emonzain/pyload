@@ -1,53 +1,39 @@
 # -*- coding: utf-8 -*-
 
-import hashlib
+from hashlib import md5
 
-from module.plugins.internal.MultiAccount import MultiAccount
-from module.plugins.internal.misc import json
+from module.plugins.Account import Account
+from module.common.json_layer import json_loads
 
 
-class LinksnappyCom(MultiAccount):
+class LinksnappyCom(Account):
     __name__    = "LinksnappyCom"
     __type__    = "account"
-    __version__ = "0.12"
-    __status__  = "testing"
-
-    __config__ = [("mh_mode"    , "all;listed;unlisted", "Filter hosters to use"        , "all"),
-                  ("mh_list"    , "str"                , "Hoster list (comma separated)", ""   ),
-                  ("mh_interval", "int"                , "Reload interval in minutes"   , 60   )]
-
+    __version__ = "0.05"
     __description__ = """Linksnappy.com account plugin"""
     __license__     = "GPLv3"
     __authors__     = [("stickell", "l.stickell@yahoo.it")]
 
 
-    def grab_hosters(self, user, password, data):
-        json_data = self.load("http://gen.linksnappy.com/lseAPI.php", get={'act': "FILEHOSTS"})
-        json_data = json.loads(json_data)
+    def loadAccountInfo(self, user, req):
+        data = self.getAccountData(user)
+        r = req.load('http://gen.linksnappy.com/lseAPI.php',
+                     get={'act': 'USERDETAILS', 'username': user, 'password': md5(data['password']).hexdigest()})
 
-        return json_data['return'].keys()
+        self.logDebug("JSON data: " + r)
 
-
-    def grab_info(self, user, password, data):
-        r = self.load('http://gen.linksnappy.com/lseAPI.php',
-                      get={'act'     : 'USERDETAILS',
-                           'username': user,
-                           'password': hashlib.md5(password).hexdigest()})
-
-        self.log_debug("JSON data: " + r)
-
-        j = json.loads(r)
+        j = json_loads(r)
 
         if j['error']:
-            return {'premium': False}
+            return {"premium": False}
 
         validuntil = j['return']['expire']
 
-        if validuntil == "lifetime":
+        if validuntil == 'lifetime':
             validuntil = -1
 
-        elif validuntil == "expired":
-            return {'premium': False}
+        elif validuntil == 'expired':
+            return {"premium": False}
 
         else:
             validuntil = float(validuntil)
@@ -55,18 +41,17 @@ class LinksnappyCom(MultiAccount):
         if 'trafficleft' not in j['return'] or isinstance(j['return']['trafficleft'], str):
             trafficleft = -1
         else:
-            trafficleft = self.parse_traffic(j['return']['trafficleft'], "MB")
+            trafficleft = self.parseTraffic("%d MB" % j['return']['trafficleft'])
 
-        return {'premium'    : True       ,
-                'validuntil' : validuntil ,
-                'trafficleft': trafficleft}
+        return {"premium": True, "validuntil": validuntil, "trafficleft": trafficleft}
 
 
-    def signin(self, user, password, data):
-        html = self.load("https://gen.linksnappy.com/lseAPI.php",
-                         get={'act'     : 'USERDETAILS',
-                              'username': user,
-                              'password': hashlib.md5(password).hexdigest()})
+    def login(self, user, data, req):
+        r = req.load("http://gen.linksnappy.com/lseAPI.php",
+                     get={'act'     : 'USERDETAILS',
+                          'username': user,
+                          'password': md5(data['password']).hexdigest()},
+                     decode=True)
 
-        if "Invalid Account Details" in html:
-            self.fail_login()
+        if 'Invalid Account Details' in r:
+            self.wrongPassword()

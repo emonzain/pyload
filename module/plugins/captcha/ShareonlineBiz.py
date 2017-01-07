@@ -1,35 +1,39 @@
 # -*- coding: utf-8 -*-
 
-from module.plugins.internal.OCR import OCR
+from module.plugins.captcha.OCR import OCR
 
 
 class ShareonlineBiz(OCR):
     __name__    = "ShareonlineBiz"
     __type__    = "ocr"
-    __version__ = "0.16"
-    __status__  = "testing"
+    __version__ = "0.11"
 
     __description__ = """Shareonline.biz ocr plugin"""
     __license__     = "GPLv3"
     __authors__     = [("RaNaN", "RaNaN@pyload.org")]
 
 
-    #: Tesseract at 60%
-    def recognize(self, image):
+    def __init__(self):
+        OCR.__init__(self)
+
+
+    def get_captcha(self, image):
         self.load_image(image)
         self.to_greyscale()
-        self.img = self.img.resize((160, 50))
-        self.pixels = self.img.load()
+        self.image = self.image.resize((160, 50))
+        self.pixels = self.image.load()
         self.threshold(1.85)
-        # self.eval_black_white(240)
-        # self.derotate_by_average()
+        #self.eval_black_white(240)
+        #self.derotate_by_average()
 
         letters = self.split_captcha_letters()
 
         final = ""
         for letter in letters:
-            self.img = letter
+            self.image = letter
             self.run_tesser(True, True, False, False)
             final += self.result_captcha
 
         return final
+
+        #tesseract at 60%

@@ -1,26 +1,46 @@
 # -*- coding: utf-8 -*-
 
-from module.plugins.internal.Addon import Addon
+from module.plugins.Hook import Hook
 
 
-class RestartFailed(Addon):
+class RestartFailed(Hook):
     __name__    = "RestartFailed"
     __type__    = "hook"
-    __version__ = "1.64"
-    __status__  = "testing"
+    __version__ = "1.58"
 
-    __config__ = [("activated", "bool", "Activated"                , False),
-                  ("interval" , "int" , "Check interval in minutes", 90   )]
+    __config__ = [("interval", "int", "Check interval in minutes", 90)]
 
     __description__ = """Restart all the failed downloads in queue"""
     __license__     = "GPLv3"
     __authors__     = [("Walter Purcaro", "vuolter@gmail.com")]
 
 
-    def periodical_task(self):
-        self.log_info(_("Restarting all failed downloads..."))
-        self.pyload.api.restartFailed()
+    # event_list = ["pluginConfigChanged"]
+
+    MIN_CHECK_INTERVAL = 15 * 60  #: 15 minutes
 
 
-    def activate(self):
-        self.periodical.start(self.config.get('interval') * 60)
+    # def pluginConfigChanged(self, plugin, name, value):
+        # if name == "interval":
+            # interval = value * 60
+            # if self.MIN_CHECK_INTERVAL <= interval != self.interval:
+                # self.core.scheduler.removeJob(self.cb)
+                # self.interval = interval
+                # self.initPeriodical()
+            # else:
+                # self.logDebug("Invalid interval value, kept current")
+
+
+    def periodical(self):
+        self.logDebug(_("Restart failed downloads"))
+        self.core.api.restartFailed()
+
+
+    def setup(self):
+        self.info     = {}  #@TODO: Remove in 0.4.10
+        self.interval = self.MIN_CHECK_INTERVAL
+
+
+    def coreReady(self):
+        # self.pluginConfigChanged(self.__name__, "interval", self.getConfig('interval'))
+        self.interval = max(self.MIN_CHECK_INTERVAL, self.getConfig('interval') * 60)

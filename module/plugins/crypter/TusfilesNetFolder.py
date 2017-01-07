@@ -2,22 +2,19 @@
 
 import math
 import re
-import urlparse
+from urlparse import urljoin
 
-from module.plugins.internal.XFSCrypter import XFSCrypter
+from module.plugins.internal.XFSCrypter import XFSCrypter, create_getInfo
 
 
 class TusfilesNetFolder(XFSCrypter):
     __name__    = "TusfilesNetFolder"
     __type__    = "crypter"
-    __version__ = "0.16"
-    __status__  = "testing"
+    __version__ = "0.08"
 
     __pattern__ = r'https?://(?:www\.)?tusfiles\.net/go/(?P<ID>\w+)'
-    __config__  = [("activated"         , "bool"          , "Activated"                                        , True     ),
-                   ("use_premium"       , "bool"          , "Use premium account if available"                 , True     ),
-                   ("folder_per_package", "Default;Yes;No", "Create folder for each package"                   , "Default"),
-                   ("max_wait"          , "int"           , "Reconnect if waiting time is greater than minutes", 10       )]
+    __config__  = [("use_subfolder"     , "bool", "Save package to subfolder"          , True),
+                   ("subfolder_per_pack", "bool", "Create a subfolder for each package", True)]
 
     __description__ = """Tusfiles.net folder decrypter plugin"""
     __license__     = "GPLv3"
@@ -25,27 +22,25 @@ class TusfilesNetFolder(XFSCrypter):
                        ("stickell", "l.stickell@yahoo.it")]
 
 
-    PLUGIN_DOMAIN = "tusfiles.net"
     PAGES_PATTERN = r'>\((\d+) \w+\)<'
 
     URL_REPLACEMENTS = [(__pattern__ + ".*", r'https://www.tusfiles.net/go/\g<ID>/')]
 
 
-    def load_page(self, page_n):
-        return self.load(urlparse.urljoin(self.pyfile.url, str(page_n)))
+    def loadPage(self, page_n):
+        return self.load(urljoin(self.pyfile.url, str(page_n)), decode=True)
 
 
-    def handle_pages(self, pyfile):
-        pages = re.search(self.PAGES_PATTERN, self.data)
-
+    def handlePages(self, pyfile):
+        pages = re.search(self.PAGES_PATTERN, self.html)
         if pages:
             pages = int(math.ceil(int(pages.group('pages')) / 25.0))
         else:
             return
 
-        links = self.links
         for p in xrange(2, pages + 1):
-            self.data = self.load_page(p)
-            links.append(self.get_links())
+            self.html = self.loadPage(p)
+            self.links += self.getLinks()
 
-        self.links = links
+
+getInfo = create_getInfo(TusfilesNetFolder)

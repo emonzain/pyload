@@ -2,28 +2,37 @@
 
 import re
 
-from module.plugins.internal.SimpleCrypter import SimpleCrypter
+from urlparse import urljoin
+
+from module.plugins.internal.SimpleCrypter import SimpleCrypter, create_getInfo
 
 
 class UploadedToFolder(SimpleCrypter):
     __name__    = "UploadedToFolder"
     __type__    = "crypter"
-    __version__ = "0.48"
-    __status__  = "testing"
+    __version__ = "0.42"
 
-    __pattern__ = r'https?://(?:www\.)?(uploaded|ul)\.(to|net)/(f|folder|list)/\w+'
-    __config__  = [("activated"         , "bool"          , "Activated"                                        , True     ),
-                   ("use_premium"       , "bool"          , "Use premium account if available"                 , True     ),
-                   ("folder_per_package", "Default;Yes;No", "Create folder for each package"                   , "Default"),
-                   ("max_wait"          , "int"           , "Reconnect if waiting time is greater than minutes", 10       )]
+    __pattern__ = r'http://(?:www\.)?(uploaded|ul)\.(to|net)/(f|folder|list)/(?P<ID>\w+)'
+    __config__  = [("use_premium"       , "bool", "Use premium account if available"   , True),
+                   ("use_subfolder"     , "bool", "Save package to subfolder"          , True),
+                   ("subfolder_per_pack", "bool", "Create a subfolder for each package", True)]
 
     __description__ = """UploadedTo decrypter plugin"""
     __license__     = "GPLv3"
     __authors__     = [("stickell", "l.stickell@yahoo.it")]
 
 
-    NAME_PATTERN         = r'<title>(?P<N>.+?)<'
-    OFFLINE_PATTERN      = r'>Page not found'
-    TEMP_OFFLINE_PATTERN = r'<title>uploaded\.net - Maintenance'
+    PLAIN_PATTERN = r'<small class="date"><a href="([\w/]+)" onclick='
+    NAME_PATTERN = r'<title>(?P<N>.+?)<'
 
-    LINK_PATTERN = r'<h2><a href="(.+?)"'
+
+    def getLinks(self):
+        m = re.search(self.PLAIN_PATTERN, self.html)
+        if m is None:
+            self.error(_("PLAIN_PATTERN not found"))
+
+        plain_link = urljoin("http://uploaded.net/", m.group(1))
+        return self.load(plain_link).split('\n')[:-1]
+
+
+getInfo = create_getInfo(UploadedToFolder)

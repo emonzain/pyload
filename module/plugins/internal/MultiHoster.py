@@ -2,75 +2,92 @@
 
 import re
 
-from module.plugins.internal.Plugin import Fail
-from module.plugins.internal.SimpleHoster import SimpleHoster
-from module.plugins.internal.misc import encode
+from module.plugins.Plugin import Fail, Retry
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo, replace_patterns, set_cookies
 
 
 class MultiHoster(SimpleHoster):
     __name__    = "MultiHoster"
     __type__    = "hoster"
-    __version__ = "0.59"
-    __status__  = "stable"
+    __version__ = "0.39"
 
     __pattern__ = r'^unmatchable$'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True ),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True ),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , False),
-                   ("chk_filesize", "bool", "Check file size"                                  , True ),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10   ),
-                   ("revertfailed", "bool", "Revert to standard download if fails"             , True )]
+    __config__  = [("use_premium" , "bool", "Use premium account if available"    , True),
+                   ("revertfailed", "bool", "Revert to standard download if fails", True)]
 
     __description__ = """Multi hoster plugin"""
     __license__     = "GPLv3"
     __authors__     = [("Walter Purcaro", "vuolter@gmail.com")]
 
 
-    DIRECT_LINK   = None
-    LEECH_HOSTER  = False
     LOGIN_ACCOUNT = True
 
 
-    def init(self):
-        self.PLUGIN_NAME = self.pyload.pluginManager.hosterPlugins.get(self.classname)['name']
-
-
-    def _log(self, level, plugintype, pluginname, messages):
-        messages = (self.PLUGIN_NAME,) + messages
-        return super(MultiHoster, self)._log(level, plugintype, pluginname, messages)
-
-
     def setup(self):
-        self.chunk_limit     = 1
-        self.multiDL         = bool(self.account)
-        self.resume_download = self.premium
+        self.chunkLimit     = 1
+        self.multiDL        = bool(self.account)
+        self.resumeDownload = self.premium
 
 
-    #@TODO: Recheck in 0.4.10
-    def setup_base(self):
-        klass = self.pyload.pluginManager.loadClass("hoster", self.classname)
-        self.get_info = klass.get_info
+    def prepare(self):
+        self.info     = {}
+        self.html     = ""
+        self.link     = ""     #@TODO: Move to hoster class in 0.4.10
+        self.directDL = False  #@TODO: Move to hoster class in 0.4.10
 
-        super(MultiHoster, self).setup_base()
+        if not self.getConfig('use_premium', True):
+            self.retryFree()
 
+        if self.LOGIN_ACCOUNT and not self.account:
+            self.fail(_("Required account not found"))
 
-    def _prepare(self):
-        super(MultiHoster, self)._prepare()
+        self.req.setOption("timeout", 120)
+
+        if isinstance(self.COOKIES, list):
+            set_cookies(self.req.cj, self.COOKIES)
 
         if self.DIRECT_LINK is None:
-            self.direct_dl = self.__pattern__ != r'^unmatchable$' and re.match(self.__pattern__, self.pyfile.url)
+            self.directDL = self.__pattern__ != r'^unmatchable$' and re.match(self.__pattern__, self.pyfile.url)
         else:
-            self.direct_dl = self.DIRECT_LINK
+            self.directDL = self.DIRECT_LINK
+
+        self.pyfile.url = replace_patterns(self.pyfile.url, self.URL_REPLACEMENTS)
 
 
-    def _process(self, thread):
+    def process(self, pyfile):
         try:
-            super(MultiHoster, self)._process(thread)
+            self.prepare()
 
-        except Fail, e:
-            if self.config.get('revertfailed', True) and \
-               self.pyload.pluginManager.hosterPlugins.get(self.classname).get('new_module'):
-                hdict = self.pyload.pluginManager.hosterPlugins.get(self.classname)
+            if self.directDL:
+                self.checkInfo()
+                self.logDebug("Looking for direct download link...")
+                self.handleDirect(pyfile)
+
+            if not self.link and not self.lastDownload:
+                self.preload()
+
+                self.checkErrors()
+                self.checkStatus(getinfo=False)
+
+                if self.premium and (not self.CHECK_TRAFFIC or self.checkTrafficLeft()):
+                    self.logDebug("Handled as premium download")
+                    self.handlePremium(pyfile)
+
+                elif not self.LOGIN_ACCOUNT or (not self.CHECK_TRAFFIC or self.checkTrafficLeft()):
+                    self.logDebug("Handled as free download")
+                    self.handleFree(pyfile)
+
+            self.downloadLink(self.link, True)
+            self.checkFile()
+
+        except Fail, e:  #@TODO: Move to PluginThread in 0.4.10
+            if self.premium:
+                self.logWarning(_("Premium download failed"))
+                self.retryFree()
+
+            elif self.getConfig("revertfailed", True) \
+                 and "new_module" in self.core.pluginManager.hosterPlugins[self.__name__]:
+                hdict = self.core.pluginManager.hosterPlugins[self.__name__]
 
                 tmp_module = hdict['new_module']
                 tmp_name   = hdict['new_name']
@@ -82,17 +99,17 @@ class MultiHoster(SimpleHoster):
                 hdict['new_module'] = tmp_module
                 hdict['new_name']   = tmp_name
 
-                self.restart(_("Revert to original hoster plugin"))
+                raise Retry(_("Revert to original hoster plugin"))
 
             else:
                 raise Fail(e)
 
 
-    def handle_premium(self, pyfile):
-        return self.handle_free(pyfile)
+    def handlePremium(self, pyfile):
+        return self.handleFree(pyfile)
 
 
-    def handle_free(self, pyfile):
+    def handleFree(self, pyfile):
         if self.premium:
             raise NotImplementedError
         else:

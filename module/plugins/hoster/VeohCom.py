@@ -2,21 +2,17 @@
 
 import re
 
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class VeohCom(SimpleHoster):
     __name__    = "VeohCom"
     __type__    = "hoster"
-    __version__ = "0.26"
-    __status__  = "testing"
+    __version__ = "0.22"
 
     __pattern__ = r'http://(?:www\.)?veoh\.com/(tv/)?(watch|videos)/(?P<ID>v\w+)'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool"         , "Use premium account if available", True  ),
+                   ("quality"    , "Low;High;Auto", "Quality"                         , "Auto")]
 
     __description__ = """Veoh.com hoster plugin"""
     __license__     = "GPLv3"
@@ -32,24 +28,28 @@ class VeohCom(SimpleHoster):
 
 
     def setup(self):
-        self.resume_download = True
+        self.resumeDownload = True
         self.multiDL        = True
-        self.chunk_limit     = -1
+        self.chunkLimit     = -1
 
 
-    def handle_free(self, pyfile):
-        quality = self.config.get('quality')
+    def handleFree(self, pyfile):
+        quality = self.getConfig('quality')
         if quality == "Auto":
             quality = ("High", "Low")
 
         for q in quality:
             pattern = r'"fullPreviewHash%sPath":"(.+?)"' % q
-            m = re.search(pattern, self.data)
-            if m is not None:
+            m = re.search(pattern, self.html)
+            if m:
                 pyfile.name += ".mp4"
-                self.link = m.group(1).replace("\\", "")
+                link = m.group(1).replace("\\", "")
+                self.download(link)
                 return
             else:
-                self.log_info(_("No %s quality video found") % q.upper())
+                self.logInfo(_("No %s quality video found") % q.upper())
         else:
             self.fail(_("No video found!"))
+
+
+getInfo = create_getInfo(VeohCom)

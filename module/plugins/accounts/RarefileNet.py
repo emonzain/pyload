@@ -6,12 +6,11 @@ from module.plugins.internal.XFSAccount import XFSAccount
 class RarefileNet(XFSAccount):
     __name__    = "RarefileNet"
     __type__    = "account"
-    __version__ = "0.08"
-    __status__  = "testing"
+    __version__ = "0.04"
 
     __description__ = """RareFile.net account plugin"""
     __license__     = "GPLv3"
     __authors__     = [("zoidberg", "zoidberg@mujmail.cz")]
 
 
-    PLUGIN_DOMAIN = "rarefile.net"
+    HOSTER_DOMAIN = "rarefile.net"

@@ -5,21 +5,16 @@
 
 import re
 
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class GooIm(SimpleHoster):
     __name__    = "GooIm"
     __type__    = "hoster"
-    __version__ = "0.08"
-    __status__  = "testing"
+    __version__ = "0.04"
 
     __pattern__ = r'https?://(?:www\.)?goo\.im/.+'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Goo.im hoster plugin"""
     __license__     = "GPLv3"
@@ -31,10 +26,13 @@ class GooIm(SimpleHoster):
 
 
     def setup(self):
-        self.resume_download = True
+        self.resumeDownload = True
         self.multiDL        = True
 
 
-    def handle_free(self, pyfile):
+    def handleFree(self, pyfile):
         self.wait(10)
-        self.link = pyfile.url
+        self.download(pyfile.url)
+
+
+getInfo = create_getInfo(GooIm)

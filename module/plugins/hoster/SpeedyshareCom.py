@@ -5,21 +5,18 @@
 
 import re
 
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from urlparse import urljoin
+
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class SpeedyshareCom(SimpleHoster):
     __name__    = "SpeedyshareCom"
     __type__    = "hoster"
-    __version__ = "0.09"
-    __status__  = "testing"
+    __version__ = "0.05"
 
     __pattern__ = r'https?://(?:www\.)?(speedyshare\.com|speedy\.sh)/\w+'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Speedyshare.com hoster plugin"""
     __license__     = "GPLv3"
@@ -36,10 +33,13 @@ class SpeedyshareCom(SimpleHoster):
 
     def setup(self):
         self.multiDL = False
-        self.chunk_limit = 1
+        self.chunkLimit = 1
 
 
-    def handle_free(self, pyfile):
-        m = re.search(self.LINK_FREE_PATTERN, self.data)
+    def handleFree(self, pyfile):
+        m = re.search(self.LINK_FREE_PATTERN, self.html)
         if m is None:
             self.link = m.group(1)
+
+
+getInfo = create_getInfo(SpeedyshareCom)

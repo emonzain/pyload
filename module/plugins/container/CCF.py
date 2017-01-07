@@ -3,24 +3,21 @@
 from __future__ import with_statement
 
 import re
-import urllib2
 
-import MultipartPostHandler
+from urllib2 import build_opener
 
-from module.plugins.internal.Container import Container
-from module.plugins.internal.misc import encode, fsjoin
+from MultipartPostHandler import MultipartPostHandler
+
+from module.plugins.Container import Container
+from module.utils import fs_encode, save_join
 
 
 class CCF(Container):
     __name__    = "CCF"
     __type__    = "container"
-    __version__ = "0.28"
-    __status__  = "testing"
+    __version__ = "0.23"
 
     __pattern__ = r'.+\.ccf$'
-    __config__  = [("activated"         , "bool"          , "Activated"                       , True     ),
-                   ("use_premium"       , "bool"          , "Use premium account if available", True     ),
-                   ("folder_per_package", "Default;Yes;No", "Create folder for each package"  , "Default")]
 
     __description__ = """CCF container decrypter plugin"""
     __license__     = "GPLv3"
@@ -29,16 +26,16 @@ class CCF(Container):
 
 
     def decrypt(self, pyfile):
-        fs_filename = encode(pyfile.url)
-        opener      = urllib2.build_opener(MultipartPostHandler.MultipartPostHandler)
+        fs_filename = fs_encode(pyfile.url.strip())
+        opener      = build_opener(MultipartPostHandler)
 
         dlc_content = opener.open('http://service.jdownloader.net/dlcrypt/getDLC.php',
                                   {'src'     : "ccf",
                                    'filename': "test.ccf",
                                    'upload'  : open(fs_filename, "rb")}).read()
 
-        dl_folder = self.pyload.config.get('general', 'download_folder')
-        dlc_file  = fsjoin(dl_folder, "tmp_%s.dlc" % pyfile.name)
+        download_folder = self.config['general']['download_folder']
+        dlc_file        = save_join(download_folder, "tmp_%s.dlc" % pyfile.name)
 
         try:
             dlc = re.search(r'<dlc>(.+)</dlc>', dlc_content, re.S).group(1).decode('base64')
@@ -49,4 +46,4 @@ class CCF(Container):
         with open(dlc_file, "w") as tempdlc:
             tempdlc.write(dlc)
 
-        self.links = [dlc_file]
+        self.urls = [dlc_file]

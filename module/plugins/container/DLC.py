@@ -5,22 +5,18 @@ from __future__ import with_statement
 import re
 import xml.dom.minidom
 
-import Crypto.Cipher.AES
+from Crypto.Cipher import AES
 
-from module.plugins.internal.Container import Container
-from module.plugins.internal.misc import decode, encode
+from module.plugins.Container import Container
+from module.utils import decode, fs_encode
 
 
 class DLC(Container):
     __name__    = "DLC"
     __type__    = "container"
-    __version__ = "0.30"
-    __status__  = "testing"
+    __version__ = "0.24"
 
-    __pattern__ = r'(.+\.dlc|[\w\+^_]+==[\w\+^_/]+==)$'
-    __config__  = [("activated"         , "bool"          , "Activated"                       , True     ),
-                   ("use_premium"       , "bool"          , "Use premium account if available", True     ),
-                   ("folder_per_package", "Default;Yes;No", "Create folder for each package"  , "Default")]
+    __pattern__ = r'.+\.dlc$'
 
     __description__ = """DLC container decrypter plugin"""
     __license__     = "GPLv3"
@@ -37,7 +33,7 @@ class DLC(Container):
 
 
     def decrypt(self, pyfile):
-        fs_filename = encode(pyfile.url)
+        fs_filename = fs_encode(pyfile.url.strip())
         with open(fs_filename) as dlc:
             data = dlc.read().strip()
 
@@ -53,24 +49,24 @@ class DLC(Container):
         except AttributeError:
             self.fail(_("Container is corrupted"))
 
-        key = iv = Crypto.Cipher.AES.new(self.KEY, Crypto.Cipher.AES.MODE_CBC, self.IV).decrypt(rc)
+        key = iv = AES.new(self.KEY, AES.MODE_CBC, self.IV).decrypt(rc)
 
-        self.data     = Crypto.Cipher.AES.new(key, Crypto.Cipher.AES.MODE_CBC, iv).decrypt(dlc_data).decode('base64')
+        self.data     = AES.new(key, AES.MODE_CBC, iv).decrypt(dlc_data).decode('base64')
         self.packages = [(name or pyfile.name, links, name or pyfile.name) \
-                         for name, links in self.get_packages()]
+                         for name, links in self.getPackages()]
 
 
-    def get_packages(self):
+    def getPackages(self):
         root    = xml.dom.minidom.parseString(self.data).documentElement
         content = root.getElementsByTagName("content")[0]
-        return self.parse_packages(content)
+        return self.parsePackages(content)
 
 
-    def parse_packages(self, startNode):
-        return [(decode(node.getAttribute("name")).decode('base64'), self.parse_links(node)) \
+    def parsePackages(self, startNode):
+        return [(decode(node.getAttribute("name")).decode('base64'), self.parseLinks(node)) \
                 for node in startNode.getElementsByTagName("package")]
 
 
-    def parse_links(self, startNode):
+    def parseLinks(self, startNode):
         return [node.getElementsByTagName("url")[0].firstChild.data.decode('base64') \
                 for node in startNode.getElementsByTagName("file")]

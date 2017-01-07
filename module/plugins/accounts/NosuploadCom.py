@@ -6,12 +6,11 @@ from module.plugins.internal.XFSAccount import XFSAccount
 class NosuploadCom(XFSAccount):
     __name__    = "NosuploadCom"
     __type__    = "account"
-    __version__ = "0.06"
-    __status__  = "testing"
+    __version__ = "0.02"
 
     __description__ = """Nosupload.com account plugin"""
     __license__     = "GPLv3"
     __authors__     = [("Walter Purcaro", "vuolter@gmail.com")]
 
 
-    PLUGIN_DOMAIN = "nosupload.com"
+    HOSTER_DOMAIN = "nosupload.com"

@@ -2,15 +2,13 @@
 
 import re
 
-from module.plugins.internal.Account import Account
-from module.plugins.internal.misc import set_cookie
+from module.plugins.Account import Account
 
 
 class FastshareCz(Account):
     __name__    = "FastshareCz"
     __type__    = "account"
-    __version__ = "0.13"
-    __status__  = "testing"
+    __version__ = "0.06"
 
     __description__ = """Fastshare.cz account plugin"""
     __license__     = "GPLv3"
@@ -21,16 +19,16 @@ class FastshareCz(Account):
     CREDIT_PATTERN = r'Credit\s*:\s*</td>\s*<td>(.+?)\s*<'
 
 
-    def grab_info(self, user, password, data):
+    def loadAccountInfo(self, user, req):
         validuntil  = -1
         trafficleft = None
         premium     = False
 
-        html = self.load("http://www.fastshare.cz/user")
+        html = req.load("http://www.fastshare.cz/user", decode=True)
 
         m = re.search(self.CREDIT_PATTERN, html)
-        if m is not None:
-            trafficleft = self.parse_traffic(m.group(1))
+        if m:
+            trafficleft = self.parseTraffic(m.group(1))
 
         premium = bool(trafficleft)
 
@@ -39,14 +37,14 @@ class FastshareCz(Account):
                 'premium'    : premium}
 
 
-    def signin(self, user, password, data):
-        set_cookie(self.req.cj, "fastshare.cz", "lang", "en")
+    def login(self, user, data, req):
+        req.cj.setCookie("fastshare.cz", "lang", "en")
 
-        self.load('http://www.fastshare.cz/login')  #@NOTE: Do not remove or it will not login
+        req.load('http://www.fastshare.cz/login')  # Do not remove or it will not login
 
-        html = self.load("https://www.fastshare.cz/sql.php",
-                         post={'login': user,
-                               'heslo': password})
+        html = req.load("http://www.fastshare.cz/sql.php",
+                        post={'login': user, 'heslo': data['password']},
+                        decode=True)
 
         if ">Wrong username or password" in html:
-            self.fail_login()
+            self.wrongPassword()

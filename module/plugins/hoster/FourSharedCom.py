@@ -2,21 +2,16 @@
 
 import re
 
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class FourSharedCom(SimpleHoster):
     __name__    = "FourSharedCom"
     __type__    = "hoster"
-    __version__ = "0.36"
-    __status__  = "testing"
+    __version__ = "0.31"
 
-    __pattern__ = r'https?://(?:www\.)?4shared(-china)?\.com/(account/)?(download|get|file|document|photo|video|audio|mp3|office|rar|zip|archive|music)/.+'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __pattern__ = r'https?://(?:www\.)?4shared(\-china)?\.com/(account/)?(download|get|file|document|photo|video|audio|mp3|office|rar|zip|archive|music)/.+'
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """4Shared.com hoster plugin"""
     __license__     = "GPLv3"
@@ -28,7 +23,7 @@ class FourSharedCom(SimpleHoster):
     SIZE_PATTERN = r'<span title="Size: (?P<S>[\d.,]+) (?P<U>[\w^_]+)">'
     OFFLINE_PATTERN = r'The file link that you requested is not valid\.|This file was deleted.'
 
-    NAME_REPLACEMENTS = [(r'&#(\d+).', lambda m: unichr(int(m.group(1))))]
+    NAME_REPLACEMENTS = [(r"&#(\d+).", lambda m: unichr(int(m.group(1))))]
     SIZE_REPLACEMENTS = [(",", "")]
 
     DIRECT_LINK   = False
@@ -40,27 +35,29 @@ class FourSharedCom(SimpleHoster):
     ID_PATTERN = r'name="d3fid" value="(.*?)"'
 
 
-    def handle_free(self, pyfile):
-        m = re.search(self.LINK_BTN_PATTERN, self.data)
-        if m is not None:
+    def handleFree(self, pyfile):
+        m = re.search(self.LINK_BTN_PATTERN, self.html)
+        if m:
             link = m.group(1)
         else:
             link = re.sub(r'/(download|get|file|document|photo|video|audio)/', r'/get/', pyfile.url)
 
-        self.data = self.load(link)
+        self.html = self.load(link)
 
-        m = re.search(self.LINK_FREE_PATTERN, self.data)
+        m = re.search(self.LINK_FREE_PATTERN, self.html)
         if m is None:
-            return
+            self.error(_("Download link"))
 
         self.link = m.group(1)
 
         try:
-            m = re.search(self.ID_PATTERN, self.data)
+            m = re.search(self.ID_PATTERN, self.html)
             res = self.load('http://www.4shared.com/web/d2/getFreeDownloadLimitInfo?fileId=%s' % m.group(1))
-            self.log_debug(res)
-
+            self.logDebug(res)
         except Exception:
             pass
 
         self.wait(20)
+
+
+getInfo = create_getInfo(FourSharedCom)

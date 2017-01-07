@@ -3,29 +3,24 @@
 import httplib
 import time
 
-from module.plugins.internal.Notifier import Notifier
+from module.plugins.Hook import Hook, Expose
 
 
-class WindowsPhoneNotify(Notifier):
+class WindowsPhoneNotify(Hook):
     __name__    = "WindowsPhoneNotify"
     __type__    = "hook"
-    __version__ = "0.17"
-    __status__  = "testing"
+    __version__ = "0.09"
 
-    __config__ = [("activated"       , "bool", "Activated"                                , False),
-                  ("pushid"          , "str" , "Push ID"                                  , ""   ),
-                  ("pushurl"         , "str" , "Push url"                                 , ""   ),
-                  ("captcha"         , "bool", "Notify captcha request"                   , True ),
-                  ("reconnection"    , "bool", "Notify reconnection request"              , False),
-                  ("downloadfinished", "bool", "Notify download finished"                 , True ),
-                  ("downloadfailed"  , "bool", "Notify download failed"                   , True ),
-                  ("packagefinished" , "bool", "Notify package finished"                  , True ),
-                  ("packagefailed"   , "bool", "Notify package failed"                    , True ),
-                  ("update"          , "bool", "Notify pyLoad update"                     , False),
-                  ("exit"            , "bool", "Notify pyLoad shutdown/restart"           , False),
-                  ("sendinterval"    , "int" , "Interval in seconds between notifications", 1    ),
-                  ("sendpermin"      , "int" , "Max notifications per minute"             , 60   ),
-                  ("ignoreclient"    , "bool", "Send notifications if client is connected", True )]
+    __config__ = [("id"             , "str" , "Push ID"                                  , ""   ),
+                  ("url"            , "str" , "Push url"                                 , ""   ),
+                  ("notifycaptcha"  , "bool", "Notify captcha request"                   , True ),
+                  ("notifypackage"  , "bool", "Notify package finished"                  , True ),
+                  ("notifyprocessed", "bool", "Notify packages processed"                , True ),
+                  ("notifyupdate"   , "bool", "Notify plugin updates"                    , True ),
+                  ("notifyexit"     , "bool", "Notify pyLoad shutdown"                   , True ),
+                  ("sendtimewait"   , "int" , "Timewait in seconds between notifications", 5    ),
+                  ("sendpermin"     , "int" , "Max notifications per minute"             , 12   ),
+                  ("ignoreclient"   , "bool", "Send notifications if client is connected", False)]
 
     __description__ = """Send push notifications to Windows Phone"""
     __license__     = "GPLv3"
@@ -33,19 +28,88 @@ class WindowsPhoneNotify(Notifier):
                        ("Walter Purcaro", "vuolter@gmail.com"       )]
 
 
-    def get_key(self):
-        return self.config.get('pushid'), self.config.get('pushurl')
+    event_list = ["allDownloadsProcessed", "plugin_updated"]
+    interval   = 0  #@TODO: Remove in 0.4.10
 
 
-    def format_request(self, msg):
+    def setup(self):
+        self.info          = {}  #@TODO: Remove in 0.4.10
+        self.last_notify   = 0
+        self.notifications = 0
+
+
+    def plugin_updated(self, type_plugins):
+        if not self.getConfig('notifyupdate'):
+            return
+
+        self.notify(_("Plugins updated"), str(type_plugins))
+
+
+    def coreExiting(self):
+        if not self.getConfig('notifyexit'):
+            return
+
+        if self.core.do_restart:
+            self.notify(_("Restarting pyLoad"))
+        else:
+            self.notify(_("Exiting pyLoad"))
+
+
+    def newCaptchaTask(self, task):
+        if not self.getConfig('notifycaptcha'):
+            return
+
+        self.notify(_("Captcha"), _("New request waiting user input"))
+
+
+    def packageFinished(self, pypack):
+        if self.getConfig('notifypackage'):
+            self.notify(_("Package finished"), pypack.name)
+
+
+    def allDownloadsProcessed(self):
+        if not self.getConfig('notifyprocessed'):
+            return
+
+        if any(True for pdata in self.core.api.getQueue() if pdata.linksdone < pdata.linkstotal):
+            self.notify(_("Package failed"), _("One or more packages was not completed successfully"))
+        else:
+            self.notify(_("All packages finished"))
+
+
+    def getXmlData(self, msg):
         return ("<?xml version='1.0' encoding='utf-8'?> <wp:Notification xmlns:wp='WPNotification'> "
                 "<wp:Toast> <wp:Text1>pyLoad</wp:Text1> <wp:Text2>%s</wp:Text2> "
                 "</wp:Toast> </wp:Notification>" % msg)
 
 
-    def send(self, event, msg, key):
-        id, url    = key
-        request    = self.format_request("%s: %s" % (event, msg) if msg else event)
+    @Expose
+    def notify(self,
+               event,
+               msg="",
+               key=(self.getConfig('id'), self.getConfig('url'))):
+
+        id, url = key
+
+        if not id or not url:
+            return
+
+        if self.core.isClientConnected() and not self.getConfig('ignoreclient'):
+            return
+
+        elapsed_time = time.time() - self.last_notify
+
+        if elapsed_time < self.getConf("sendtimewait"):
+            return
+
+        if elapsed_time > 60:
+            self.notifications = 0
+
+        elif self.notifications >= self.getConf("sendpermin"):
+            return
+
+
+        request    = self.getXmlData("%s: %s" % (event, msg) if msg else event)
         webservice = httplib.HTTP(url)
 
         webservice.putrequest("POST", id)
@@ -57,3 +121,6 @@ class WindowsPhoneNotify(Notifier):
         webservice.endheaders()
         webservice.send(request)
         webservice.close()
+
+        self.last_notify    = time.time()
+        self.notifications += 1

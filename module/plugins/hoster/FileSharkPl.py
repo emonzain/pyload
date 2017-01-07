@@ -1,23 +1,19 @@
 # -*- coding: utf-8 -*-
 
 import re
-import urlparse
 
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from urlparse import urljoin
+
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class FileSharkPl(SimpleHoster):
     __name__    = "FileSharkPl"
     __type__    = "hoster"
-    __version__ = "0.19"
-    __status__  = "testing"
+    __version__ = "0.09"
 
     __pattern__ = r'http://(?:www\.)?fileshark\.pl/pobierz/\d+/\w+'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """FileShark.pl hoster plugin"""
     __license__     = "GPLv3"
@@ -25,12 +21,12 @@ class FileSharkPl(SimpleHoster):
                        ("Walter Purcaro", "vuolter@gmail.com")]
 
 
-    NAME_PATTERN    = r'<h2 class="name-file">(?P<N>.+?)</h2>'
+    NAME_PATTERN    = r'<h2 class="name-file">(?P<N>.+)</h2>'
     SIZE_PATTERN    = r'<p class="size-file">(.*?)<strong>(?P<S>\d+\.?\d*)\s(?P<U>\w+)</strong></p>'
     OFFLINE_PATTERN = r'(P|p)lik zosta. (usuni.ty|przeniesiony)'
 
-    LINK_FREE_PATTERN    = r'<a rel="nofollow" href="(.*?)" class="btn-upload-free">'
-    LINK_PREMIUM_PATTERN = r'<a rel="nofollow" href="(.*?)" class="btn-upload-premium">'
+    LINK_FREE_PATTERN    = r'<a href="(.*?)" class="btn-upload-free">'
+    LINK_PREMIUM_PATTERN = r'<a href="(.*?)" class="btn-upload-premium">'
 
     WAIT_PATTERN       = r'var timeToDownload = (\d+);'
     ERROR_PATTERN      = r'<p class="lead text-center alert alert-warning">(.*?)</p>'
@@ -42,7 +38,7 @@ class FileSharkPl(SimpleHoster):
 
 
     def setup(self):
-        self.resume_download = True
+        self.resumeDownload = True
 
         if self.premium:
             self.multiDL = True
@@ -51,15 +47,15 @@ class FileSharkPl(SimpleHoster):
             self.multiDL = False
 
 
-    def check_errors(self):
-        #: Check if file is now available for download (-> file name can be found in html body)
-        m = re.search(self.WAIT_PATTERN, self.data)
-        if m is not None:
+    def checkErrors(self):
+        # check if file is now available for download (-> file name can be found in html body)
+        m = re.search(self.WAIT_PATTERN, self.html)
+        if m:
             errmsg = self.info['error'] = _("Another download already run")
             self.retry(15, int(m.group(1)), errmsg)
 
-        m = re.search(self.ERROR_PATTERN, self.data)
-        if m is not None:
+        m = re.search(self.ERROR_PATTERN, self.html)
+        if m:
             alert = m.group(1)
 
             if re.match(self.IP_ERROR_PATTERN, alert):
@@ -67,7 +63,7 @@ class FileSharkPl(SimpleHoster):
 
             elif re.match(self.SLOT_ERROR_PATTERN, alert):
                 errmsg = self.info['error'] = _("No free download slots available")
-                self.log_warning(errmsg)
+                self.logWarning(errmsg)
                 self.retry(10, 30 * 60, _("Still no free download slots available"))
 
             else:
@@ -77,34 +73,46 @@ class FileSharkPl(SimpleHoster):
         self.info.pop('error', None)
 
 
-    def handle_free(self, pyfile):
-        m = re.search(self.LINK_FREE_PATTERN, self.data)
+    def handleFree(self, pyfile):
+        m = re.search(self.LINK_FREE_PATTERN, self.html)
         if m is None:
             self.error(_("Download url not found"))
 
-        link = urlparse.urljoin("http://fileshark.pl/", m.group(1))
+        link = urljoin("http://fileshark.pl", m.group(1))
 
-        self.data = self.load(link)
+        self.html = self.load(link)
 
-        m = re.search(self.WAIT_PATTERN, self.data)
-        if m is not None:
+        m = re.search(self.WAIT_PATTERN, self.html)
+        if m:
             seconds = int(m.group(1))
-            self.log_debug("Wait %s seconds" % seconds)
+            self.logDebug("Wait %s seconds" % seconds)
             self.wait(seconds)
 
-        action, inputs = self.parse_html_form('action=""')
+        action, inputs = self.parseHtmlForm('action=""')
 
-        m = re.search(self.TOKEN_PATTERN, self.data)
+        m = re.search(self.TOKEN_PATTERN, self.html)
         if m is None:
-            self.retry(msg=_("Captcha form not found"))
+            self.retry(reason=_("Captcha form not found"))
 
         inputs['form[_token]'] = m.group(1)
 
-        m = re.search(self.CAPTCHA_PATTERN, self.data)
+        m = re.search(self.CAPTCHA_PATTERN, self.html)
         if m is None:
-            self.retry(msg=_("Captcha image not found"))
+            self.retry(reason=_("Captcha image not found"))
 
-        inputs['form[captcha]'] = self.captcha.decrypt_image(m.group(1).decode('base64'), input_type='jpeg')
+        tmp_load  = self.load
+        self.load = self._decode64  #: work-around: injects decode64 inside decryptCaptcha
+
+        inputs['form[captcha]'] = self.decryptCaptcha(m.group(1), imgtype='jpeg')
         inputs['form[start]'] = ""
 
+        self.load = tmp_load
+
         self.download(link, post=inputs, disposition=True)
+
+
+    def _decode64(self, data, *args, **kwargs):
+        return data.decode('base64')
+
+
+getInfo = create_getInfo(FileSharkPl)

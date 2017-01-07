@@ -1,24 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import re
-import urlparse
 
-from module.plugins.internal.misc import json
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.common.json_layer import json_loads
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class YibaishiwuCom(SimpleHoster):
     __name__    = "YibaishiwuCom"
     __type__    = "hoster"
-    __version__ = "0.18"
-    __status__  = "testing"
+    __version__ = "0.14"
 
     __pattern__ = r'http://(?:www\.)?(?:u\.)?115\.com/file/(?P<ID>\w+)'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """115.com hoster plugin"""
     __license__     = "GPLv3"
@@ -32,17 +26,16 @@ class YibaishiwuCom(SimpleHoster):
     LINK_FREE_PATTERN = r'(/\?ct=(pickcode|download)[^"\']+)'
 
 
-    def handle_free(self, pyfile):
-        m = re.search(self.LINK_FREE_PATTERN, self.data)
+    def handleFree(self, pyfile):
+        m = re.search(self.LINK_FREE_PATTERN, self.html)
         if m is None:
             self.error(_("LINK_FREE_PATTERN not found"))
 
         url = m.group(1)
 
-        self.log_debug(('FREEUSER' if m.group(2) == "download" else 'GUEST') + ' URL', url)
+        self.logDebug(('FREEUSER' if m.group(2) == 'download' else 'GUEST') + ' URL', url)
 
-        html = self.load(urlparse.urljoin("http://115.com/", url), decode=False)
-        res = json.loads(html)
+        res = json_loads(self.load("http://115.com" + url, decode=False))
         if "urls" in res:
             mirrors = res['urls']
 
@@ -54,11 +47,14 @@ class YibaishiwuCom(SimpleHoster):
 
         for mr in mirrors:
             try:
-                self.link = mr['url'].replace("\\", "")
-                self.log_debug("Trying URL: " + self.link)
+                url = mr['url'].replace("\\", "")
+                self.logDebug("Trying URL: " + url)
+                self.download(url)
                 break
-
             except Exception:
-                pass
+                continue
         else:
             self.fail(_("No working link found"))
+
+
+getInfo = create_getInfo(YibaishiwuCom)

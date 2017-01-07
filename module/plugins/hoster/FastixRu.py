@@ -1,25 +1,21 @@
 # -*- coding: utf-8 -*-
 
 import re
-import urllib
 
-from module.plugins.internal.MultiHoster import MultiHoster
-from module.plugins.internal.misc import json
+from random import randrange
+from urllib import unquote
+
+from module.common.json_layer import json_loads
+from module.plugins.internal.MultiHoster import MultiHoster, create_getInfo
 
 
 class FastixRu(MultiHoster):
     __name__    = "FastixRu"
     __type__    = "hoster"
-    __version__ = "0.19"
-    __status__  = "testing"
+    __version__ = "0.11"
 
     __pattern__ = r'http://(?:www\.)?fastix\.(ru|it)/file/\w{24}'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True ),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True ),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , False),
-                   ("chk_filesize", "bool", "Check file size"                                  , True ),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10   ),
-                   ("revertfailed", "bool", "Revert to standard download if fails"             , True )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Fastix multi-hoster plugin"""
     __license__     = "GPLv3"
@@ -27,19 +23,24 @@ class FastixRu(MultiHoster):
 
 
     def setup(self):
-        self.chunk_limit = 3
+        self.chunkLimit = 3
 
 
-    def handle_premium(self, pyfile):
-        self.data = self.load("http://fastix.ru/api_v2/",
-                              get={'apikey': self.account.get_data('apikey'),
-                                   'sub'   : "getdirectlink",
-                                   'link'  : pyfile.url})
-        data = json.loads(self.data)
+    def handlePremium(self, pyfile):
+        api_key = self.account.getAccountData(self.user)
+        api_key = api_key['api']
 
-        self.log_debug("Json data", data)
+        self.html = self.load("http://fastix.ru/api_v2/",
+                         get={'apikey': api_key, 'sub': "getdirectlink", 'link': pyfile.url})
 
-        if "error\":true" in self.data:
+        data = json_loads(self.html)
+
+        self.logDebug("Json data", data)
+
+        if "error\":true" in self.html:
             self.offline()
         else:
             self.link = data['downloadlink']
+
+
+getInfo = create_getInfo(FastixRu)

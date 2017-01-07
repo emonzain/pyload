@@ -5,85 +5,62 @@
 
 import re
 
-from module.network.HTTPRequest import BadHeader
-from module.plugins.internal.Hoster import Hoster
-from module.plugins.internal.misc import json
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
+from module.utils import html_unescape
 
 
-class GoogledriveCom(Hoster):
+class GoogledriveCom(SimpleHoster):
     __name__    = "GoogledriveCom"
     __type__    = "hoster"
-    __version__ = "0.24"
-    __status__  = "testing"
+    __version__ = "0.03"
 
-    __pattern__ = r'https?://(?:www\.)?(?:drive|docs)\.google\.com/(?:file/d/|(?:uc|open)\?.*id=)(?P<ID>[-\w]+)'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __pattern__ = r'https?://(?:www\.)?drive\.google\.com/file/.+'
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Drive.google.com hoster plugin"""
     __license__     = "GPLv3"
-    __authors__     = [("zapp-brannigan", "fuerst.reinje@web.de"      ),
-                       ("GammaC0de"     , "nitzo2001[AT]yahoo[DOT]com")]
+    __authors__     = [("zapp-brannigan", "fuerst.reinje@web.de")]
 
-    API_URL = "https://www.googleapis.com/drive/v3/"
-    API_KEY = "AIzaSyAcA9c4evtwSY1ifuvzo6HKBkeot5Bk_U4"
+
+    DISPOSITION = False
+
+    NAME_PATTERN    = r'"og:title" content="(?P<N>.*?)">'
+    OFFLINE_PATTERN = r'align="center"><p class="errorMessage"'
 
 
     def setup(self):
-        self.multiDL         = True
-        self.resume_download = True
-        self.chunk_limit     = 1
+        self.multiDL        = True
+        self.resumeDownload = True
+        self.chunkLimit     = 1
 
 
-    def api_response(self, cmd, **kwargs):
-        kwargs['key'] = self.API_KEY
+    def handleFree(self, pyfile):
         try:
-            json_data = json.loads(self.load("%s%s/%s" % (self.API_URL, cmd, self.info['pattern']['ID']), get=kwargs))
-            self.log_debug("API response: %s" % json_data)
-            return json_data
+            link1 = re.search(r'"(https://docs.google.com/uc\?id.*?export=download)",',
+                              self.html.decode('unicode-escape')).group(1)
 
-        except BadHeader, e:
-            self.log_error("API Error: %s" % cmd, e, "ID: %s" % self.info['pattern']['ID'], "Error code: %s" % e.code)
-            return None
+        except AttributeError:
+            self.error(_("Hop #1 not found"))
 
+        else:
+            self.logDebug("Next hop: %s" % link1)
 
-    def api_download(self):
+        self.html = self.load(link1).decode('unicode-escape')
+
         try:
-            self.download("%s%s/%s" % (self.API_URL, "files", self.info['pattern']['ID']),
-                          get={'alt'             : "media",
-                               # 'acknowledgeAbuse': "true",
-                               'key'             : self.API_KEY})
+            link2 = html_unescape(re.search(r'href="(/uc\?export=download.*?)">',
+                                  self.html).group(1))
 
-        except BadHeader, e:
-            if e.code == 404:
-                self.offline()
+        except AttributeError:
+            self.error(_("Hop #2 not found"))
 
-            elif e.code == 403:
-                self.temp_offline()
+        else:
+            self.logDebug("Next hop: %s" % link2)
 
-            else:
-                raise
+        link3 = self.load("https://docs.google.com" + link2, just_header=True)
+        self.logDebug("DL-Link: %s" % link3['location'])
 
+        self.link = link3['location']
 
 
-    def process(self, pyfile):
-        json_data = self.api_response("files", fields="md5Checksum,name,size")
-
-        if json_data is None:
-            self.fail("API error")
-
-        if 'error' in json_data:
-            if json_data['error']['code'] == 404:
-                self.offline()
-
-            else:
-                self.fail(json_data['error']['message'])
-
-        pyfile.size = long(json_data['size'])
-        pyfile.name = json_data['name']
-        self.info['md5'] = json_data['md5Checksum']
-
-        self.api_download()
+getInfo = create_getInfo(GoogledriveCom)

@@ -1,45 +1,40 @@
 # -*- coding: utf-8 -*-
 
 from module.network.HTTPRequest import BadHeader
-from module.plugins.internal.Plugin import Retry
-from module.plugins.internal.XFSHoster import XFSHoster
+from module.plugins.internal.XFSHoster import XFSHoster, create_getInfo
 
 
 class TusfilesNet(XFSHoster):
     __name__    = "TusfilesNet"
     __type__    = "hoster"
-    __version__ = "0.17"
-    __status__  = "testing"
+    __version__ = "0.09"
 
     __pattern__ = r'https?://(?:www\.)?tusfiles\.net/\w{12}'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
 
     __description__ = """Tusfiles.net hoster plugin"""
     __license__     = "GPLv3"
     __authors__     = [("Walter Purcaro", "vuolter@gmail.com"),
                        ("guidobelix", "guidobelix@hotmail.it")]
 
-    PLUGIN_DOMAIN = "tusfiles.net"
 
     INFO_PATTERN    = r'\](?P<N>.+) - (?P<S>[\d.,]+) (?P<U>[\w^_]+)\['
+    OFFLINE_PATTERN = r'>File Not Found|<Title>TusFiles - Fast Sharing Files!|The file you are trying to download is no longer available'
 
 
     def setup(self):
-        self.chunk_limit     = -1
-        self.multiDL         = True
-        self.limitDL         = 2
-        self.resume_download = True
+        self.chunkLimit     = -1
+        self.multiDL        = True
+        self.resumeDownload = True
 
 
-    def download(self, url, *args, **kwargs):
+    def downloadLink(self, link):
         try:
-            return super(TusfilesNet, self).download(url, *args, **kwargs)
+            return super(TusfilesNet, self).downloadLink(link)
 
         except BadHeader, e:
-            if e.code == 503:
+            if e.code is 503:
                 self.multiDL = False
                 raise Retry("503")
+
+
+getInfo = create_getInfo(TusfilesNet)

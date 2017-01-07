@@ -1,28 +1,31 @@
 # -*- coding: utf-8 -*-
 
-from module.plugins.internal.Crypter import Crypter
+from module.plugins.internal.SimpleCrypter import create_getInfo
+from module.plugins.Crypter import Crypter as _Crypter
 
 
-class DeadCrypter(Crypter):
+class DeadCrypter(_Crypter):
     __name__    = "DeadCrypter"
     __type__    = "crypter"
-    __version__ = "0.11"
-    __status__  = "stable"
+    __version__ = "0.04"
 
     __pattern__ = r'^unmatchable$'
-    __config__  = [("activated", "bool", "Activated", True)]
 
-    __description__ = """Crypter is no longer available"""
+    __description__ = """ Crypter is no longer available """
     __license__     = "GPLv3"
     __authors__     = [("stickell", "l.stickell@yahoo.it")]
 
 
     @classmethod
-    def get_info(cls, *args, **kwargs):
-        info = super(DeadCrypter, cls).get_info(*args, **kwargs)
-        info['status'] = 1
-        return info
+    def apiInfo(cls, url="", get={}, post={}):
+        api = super(DeadCrypter, self).apiInfo(url, get, post)
+        api['status'] = 1
+        return api
 
 
     def setup(self):
-        self.offline(_("Crypter is no longer available"))
+        self.pyfile.error = "Crypter is no longer available"
+        self.offline()  #@TODO: self.offline("Crypter is no longer available")
+
+
+getInfo = create_getInfo(DeadCrypter)

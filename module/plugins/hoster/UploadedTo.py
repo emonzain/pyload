@@ -1,57 +1,44 @@
 # -*- coding: utf-8 -*-
 
-import os
 import re
 import time
 
-from module.network.RequestFactory import getURL as get_url
-from module.plugins.captcha.ReCaptcha import ReCaptcha
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.network.RequestFactory import getURL
+from module.plugins.internal.CaptchaService import ReCaptcha
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class UploadedTo(SimpleHoster):
     __name__    = "UploadedTo"
     __type__    = "hoster"
-    __version__ = "1.05"
-    __status__  = "testing"
+    __version__ = "0.85"
 
     __pattern__ = r'https?://(?:www\.)?(uploaded\.(to|net)|ul\.to)(/file/|/?\?id=|.*?&id=|/)(?P<ID>\w+)'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Uploaded.net hoster plugin"""
     __license__     = "GPLv3"
     __authors__     = [("Walter Purcaro", "vuolter@gmail.com")]
 
 
-    CHECK_TRAFFIC = True
+    API_KEY = "lhF2IeeprweDfu9ccWlxXVVypA5nA3EL"
 
     URL_REPLACEMENTS = [(__pattern__ + ".*", r'http://uploaded.net/file/\g<ID>')]
 
-    API_KEY = "lhF2IeeprweDfu9ccWlxXVVypA5nA3EL"
-
-    OFFLINE_PATTERN      = r'>Page not found'
-    TEMP_OFFLINE_PATTERN = r'<title>uploaded\.net - Maintenance|Downloads have been blocked for today.<'
-    PREMIUM_ONLY_PATTERN = r'This file exceeds the max\. filesize which can be downloaded by free users'
-
-    LINK_FREE_PATTERN    = r"url:\s*'(.+?)'"
     LINK_PREMIUM_PATTERN = r'<div class="tfree".*\s*<form method="post" action="(.+?)"'
 
-    WAIT_PATTERN     = r'Current waiting period: <span>(\d+)'
-    DL_LIMIT_PATTERN = r'You have reached the max. number of possible free downloads for this hour'
+    WAIT_PATTERN   = r'Current waiting period: <span>(\d+)'
+    DL_LIMIT_ERROR = r'You have reached the max. number of possible free downloads for this hour'
 
 
     @classmethod
-    def api_info(cls, url):
-        info = {}
+    def apiInfo(cls, url="", get={}, post={}):
+        info = super(UploadedTo, cls).apiInfo(url)
 
         for _i in xrange(5):
-            html = get_url("http://uploaded.net/api/filemultiple",
-                           get={'apikey': cls.API_KEY,
-                                'id_0'  : re.match(cls.__pattern__, url).group('ID')})
+            html = getURL("http://uploaded.net/api/filemultiple",
+                          get={"apikey": cls.API_KEY, 'id_0': re.match(cls.__pattern__, url).group('ID')},
+                          decode=True)
 
             if html != "can't find request":
                 api = html.split(",", 4)
@@ -67,32 +54,67 @@ class UploadedTo(SimpleHoster):
 
 
     def setup(self):
-        self.multiDL = self.resume_download = self.premium
-        self.chunk_limit = 1  #: Critical problems with more chunks
+        self.multiDL    = self.resumeDownload = self.premium
+        self.chunkLimit = 1  # critical problems with more chunks
 
 
-    def handle_free(self, pyfile):
+    def checkErrors(self):
+        if 'var free_enabled = false;' in self.html:
+            self.logError(_("Free-download capacities exhausted"))
+            self.retry(24, 5 * 60)
+
+        elif "limit-size" in self.html:
+            self.fail(_("File too big for free download"))
+
+        elif "limit-slot" in self.html:  # Temporary restriction so just wait a bit
+            self.wait(30 * 60, True)
+            self.retry()
+
+        elif "limit-parallel" in self.html:
+            self.fail(_("Cannot download in parallel"))
+
+        elif "limit-dl" in self.html or self.DL_LIMIT_ERROR in self.html:  # limit-dl
+            self.wait(3 * 60 * 60, True)
+            self.retry()
+
+        elif '"err":"captcha"' in self.html:
+            self.invalidCaptcha()
+
+        else:
+            m = re.search(self.WAIT_PATTERN, self.html)
+            if m:
+                self.wait(m.group(1))
+
+
+    def handleFree(self, pyfile):
         self.load("http://uploaded.net/language/en", just_header=True)
 
-        self.data = self.load("http://uploaded.net/js/download.js")
+        self.html = self.load("http://uploaded.net/js/download.js", decode=True)
 
-        self.captcha = ReCaptcha(pyfile)
-        response, challenge = self.captcha.challenge()
+        recaptcha = ReCaptcha(self)
+        response, challenge = recaptcha.challenge()
 
-        self.data = self.load("http://uploaded.net/io/ticket/captcha/%s" % self.info['pattern']['ID'],
+        self.html = self.load("http://uploaded.net/io/ticket/captcha/%s" % self.info['pattern']['ID'],
                               post={'recaptcha_challenge_field': challenge,
                                     'recaptcha_response_field' : response})
-        self.check_errors()
 
-        super(UploadedTo, self).handle_free(pyfile)
-        self.check_errors()
+        if "type:'download'" in self.html:
+            self.correctCaptcha()
+            try:
+                self.link = re.search("url:'([^']+)", self.html).group(1)
 
-    def check_download(self):
-        check = self.scan_download({'dl_limit': self.DL_LIMIT_PATTERN})
+            except Exception:
+                pass
 
-        if check == "dl_limit":
-            self.log_warning(_("Free download limit reached"))
-            os.remove(self.last_download)
-            self.retry(wait=10800, msg=_("Free download limit reached"))
+        self.checkErrors()
 
-        return super(UploadedTo, self).check_download()
+
+    def checkFile(self, rules={}):
+        if self.checkDownload({'limit-dl': self.DL_LIMIT_ERROR}):
+            self.wait(3 * 60 * 60, True)
+            self.retry()
+
+        return super(UploadedTo, self).checkFile(rules)
+
+
+getInfo = create_getInfo(UploadedTo)

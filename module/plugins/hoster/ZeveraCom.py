@@ -2,22 +2,18 @@
 
 import re
 
-from module.plugins.internal.MultiHoster import MultiHoster
+from urlparse import urljoin
+
+from module.plugins.internal.MultiHoster import MultiHoster, create_getInfo
 
 
 class ZeveraCom(MultiHoster):
     __name__    = "ZeveraCom"
     __type__    = "hoster"
-    __version__ = "0.36"
-    __status__  = "testing"
+    __version__ = "0.29"
 
     __pattern__ = r'https?://(?:www\.)zevera\.com/(getFiles\.ashx|Members/download\.ashx)\?.*ourl=.+'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True ),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True ),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , False),
-                   ("chk_filesize", "bool", "Check file size"                                  , True ),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10   ),
-                   ("revertfailed", "bool", "Revert to standard download if fails"             , True )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Zevera.com multi-hoster plugin"""
     __license__     = "GPLv3"
@@ -25,8 +21,15 @@ class ZeveraCom(MultiHoster):
                        ("Walter Purcaro", "vuolter@gmail.com")]
 
 
-    FILE_ERRORS = [("Error", r'action="ErrorDownload.aspx')]
+    def handlePremium(self, pyfile):
+        self.link = "https://%s/getFiles.ashx?ourl=%s" % (self.account.HOSTER_DOMAIN, pyfile.url)
 
 
-    def handle_premium(self, pyfile):
-        self.link = "https://%s/getFiles.ashx?ourl=%s" % (self.account.PLUGIN_DOMAIN, pyfile.url)
+    def checkFile(self, rules={}):
+        if self.checkDownload({"error": 'action="ErrorDownload.aspx'}):
+            self.fail(_("Error response received"))
+
+        return super(ZeveraCom, self).checkFile(rules)
+
+
+getInfo = create_getInfo(ZeveraCom)

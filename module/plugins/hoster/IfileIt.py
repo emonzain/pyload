@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 
-from module.plugins.internal.DeadHoster import DeadHoster
+from module.plugins.internal.DeadHoster import DeadHoster, create_getInfo
 
 
 class IfileIt(DeadHoster):
     __name__    = "IfileIt"
     __type__    = "hoster"
-    __version__ = "0.33"
-    __status__  = "stable"
+    __version__ = "0.29"
 
     __pattern__ = r'^unmatchable$'
-    __config__  = []  #@TODO: Remove in 0.4.10
+    __config__  = []
 
-    __description__ = """Ifile.it hoster plugin"""
+    __description__ = """Ifile.it"""
     __license__     = "GPLv3"
     __authors__     = [("zoidberg", "zoidberg@mujmail.cz")]
+
+
+getInfo = create_getInfo(IfileIt)

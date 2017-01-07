@@ -4,8 +4,6 @@ import os
 import re
 
 from module.PyFile import PyFile
-from module.plugins.internal.Plugin import Plugin
-from module.plugins.internal.misc import encode
 
 
 class ArchiveError(Exception):
@@ -20,11 +18,9 @@ class PasswordError(Exception):
     pass
 
 
-class Extractor(Plugin):
+class Extractor:
     __name__    = "Extractor"
-    __type__    = "extractor"
-    __version__ = "0.43"
-    __status__  = "stable"
+    __version__ = "0.24"
 
     __description__ = """Base extractor plugin"""
     __license__     = "GPLv3"
@@ -33,127 +29,122 @@ class Extractor(Plugin):
 
 
     EXTENSIONS = []
+    VERSION    = ""
     REPAIR     = False
-    VERSION    = None
 
 
     @classmethod
-    def isarchive(cls, filename):
+    def isArchive(cls, filename):
         name = os.path.basename(filename).lower()
-        return any(name.endswith('.' + ext) for ext in cls.EXTENSIONS)
+        return any(name.endswith(ext) for ext in cls.EXTENSIONS)
 
 
     @classmethod
-    def ismultipart(cls, filename):
+    def isMultipart(cls, filename):
         return False
 
 
     @classmethod
-    def find(cls):
+    def isUsable(cls):
+        """ Check if system statisfy dependencies
+        :return: boolean
         """
-        Check if system statisfy dependencies
-        """
-        pass
+        return None
 
 
     @classmethod
-    def get_targets(cls, files_ids):
-        """
-        Filter suited targets from list of filename id tuple list
+    def getTargets(cls, files_ids):
+        """ Filter suited targets from list of filename id tuple list
         :param files_ids: List of filepathes
         :return: List of targets, id tuple list
         """
-        targets   = []
+        targets = []
         processed = []
 
-        for id, fname, fout in files_ids:
-            if not cls.isarchive(fname):
-                continue
-
-            if cls.ismultipart(fname):
-                pname = re.sub(cls._RE_PART, "", fname)
-            else:
-                pname = os.path.splitext(fname)[0]
-
-            if pname in processed:
-                continue
-
-            processed.append(pname)
-            targets.append((id, fname, fout))
-
+        for fname, id, fout in files_ids:
+            if cls.isArchive(fname):
+                pname = re.sub(cls.re_multipart, '', fname) if cls.isMultipart(fname) else os.path.splitext(fname)[0]
+                if pname not in processed:
+                    processed.append(pname)
+                    targets.append((fname, id, fout))
         return targets
 
 
-    def __init__(self, pyfile, filename, out,
+    def __init__(self, manager, filename, out,
                  fullpath=True,
                  overwrite=False,
                  excludefiles=[],
-                 priority=0,
-                 keepbroken=False):
-        """
-        Initialize extractor for specific file
-        """
-        self._init(pyfile.m.core)
-
-        self.pyfile       = pyfile
+                 renice=0,
+                 delete='No',
+                 keepbroken=False,
+                 fid=None):
+        """ Initialize extractor for specific file """
+        self.manager      = manager
         self.filename     = filename
-        self.name         = os.path.basename(filename)
         self.out          = out
         self.fullpath     = fullpath
         self.overwrite    = overwrite
         self.excludefiles = excludefiles
-        self.priority     = priority
+        self.renice       = renice
+        self.delete       = delete
         self.keepbroken   = keepbroken
-        self.files        = None
+        self.files        = []  #: Store extracted files here
 
-        self.init()
-
-
-    @property
-    def target(self):
-        return encode(self.filename)
+        pyfile = self.manager.core.files.getFile(fid) if fid else None
+        self.notifyProgress = lambda x: pyfile.setProgress(x) if pyfile else lambda x: None
 
 
-    @property
-    def dest(self):
-        return encode(self.out)
-
-
-    def verify(self, password=None):
-        """
-        Testing with Extractors built-in method
-        Raise error if password is needed, integrity is questionable or else
-        """
+    def init(self):
+        """ Initialize additional data structures """
         pass
 
 
-    def repair(self):
-        pass
+    def check(self):
+        """Quick Check by listing content of archive.
+        Raises error if password is needed, integrity is questionable or else.
 
-
-    def extract(self, password=None):
+        :raises PasswordError
+        :raises CRCError
+        :raises ArchiveError
         """
-        Extract the archive
-        Raise specific errors in case of failure
+        raise NotImplementedError
+
+    def verify(self):
+        """Testing with Extractors buildt-in method
+        Raises error if password is needed, integrity is questionable or else.
+
+        :raises PasswordError
+        :raises CRCError
+        :raises ArchiveError
         """
         raise NotImplementedError
 
 
-    def chunks(self):
+    def repair(self):
+        return None
+
+
+    def extract(self, password=None):
+        """Extract the archive. Raise specific errors in case of failure.
+
+        :param progress: Progress function, call this to update status
+        :param password password to use
+        :raises PasswordError
+        :raises CRCError
+        :raises ArchiveError
+        :return:
         """
-        Return list of archive parts
+        raise NotImplementedError
+
+
+    def getDeleteFiles(self):
+        """Return list of files to delete, do *not* delete them here.
+
+        :return: List with paths of files to delete
         """
         return [self.filename]
 
 
     def list(self, password=None):
-        """
-        Return list of archive files
-        """
-        raise NotImplementedError
-
-    def progress(self, x):
-        """
-        Set extraction progress
-        """
-        return self.pyfile.setProgress(int(x))
+        """Populate self.files at some point while extracting"""
+        return self.files

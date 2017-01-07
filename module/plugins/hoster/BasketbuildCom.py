@@ -6,23 +6,18 @@
 
 import re
 
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class BasketbuildCom(SimpleHoster):
     __name__    = "BasketbuildCom"
     __type__    = "hoster"
-    __version__ = "0.07"
-    __status__  = "testing"
+    __version__ = "0.03"
 
     __pattern__ = r'https?://(?:www\.)?(?:\w\.)?basketbuild\.com/filedl/.+'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
-    __description__ = """Basketbuild.com hoster plugin"""
+    __description__ = """basketbuild.com hoster plugin"""
     __license__     = "GPLv3"
     __authors__     = [("zapp-brannigan", "fuerst.reinje@web.de")]
 
@@ -34,31 +29,34 @@ class BasketbuildCom(SimpleHoster):
 
     def setup(self):
         self.multiDL        = True
-        self.resume_download = True
-        self.chunk_limit     = 1
+        self.resumeDownload = True
+        self.chunkLimit     = 1
 
 
-    def handle_free(self, pyfile):
+    def handleFree(self, pyfile):
         try:
-            link1 = re.search(r'href="(.+dlgate/.+)"', self.data).group(1)
-            self.data = self.load(link1)
+            link1 = re.search(r'href="(.+dlgate/.+)"', self.html).group(1)
+            self.html = self.load(link1)
 
         except AttributeError:
             self.error(_("Hop #1 not found"))
 
         else:
-            self.log_debug("Next hop: %s" % link1)
+            self.logDebug("Next hop: %s" % link1)
 
         try:
-            wait = re.search(r'var sec = (\d+)', self.data).group(1)
-            self.log_debug("Wait %s seconds" % wait)
+            wait = re.search(r'var sec = (\d+)', self.html).group(1)
+            self.logDebug("Wait %s seconds" % wait)
             self.wait(wait)
 
         except AttributeError:
-            self.log_debug("No wait time found")
+            self.logDebug("No wait time found")
 
         try:
-            self.link = re.search(r'id="dlLink">\s*<a href="(.+?)"', self.data).group(1)
+            self.link = re.search(r'id="dlLink">\s*<a href="(.+?)"', self.html).group(1)
 
         except AttributeError:
             self.error(_("DL-Link not found"))
+
+
+getInfo = create_getInfo(BasketbuildCom)

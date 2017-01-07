@@ -2,21 +2,19 @@
 
 import re
 
-from module.plugins.internal.SimpleCrypter import SimpleCrypter
-from module.plugins.internal.misc import json
+from module.plugins.internal.SimpleCrypter import SimpleCrypter, create_getInfo
+from module.common.json_layer import json_loads
 
 
 class TurbobitNetFolder(SimpleCrypter):
     __name__    = "TurbobitNetFolder"
     __type__    = "crypter"
-    __version__ = "0.10"
-    __status__  = "broken"
+    __version__ = "0.05"
 
     __pattern__ = r'http://(?:www\.)?turbobit\.net/download/folder/(?P<ID>\w+)'
-    __config__  = [("activated"         , "bool"          , "Activated"                                        , True     ),
-                   ("use_premium"       , "bool"          , "Use premium account if available"                 , True     ),
-                   ("folder_per_package", "Default;Yes;No", "Create folder for each package"                   , "Default"),
-                   ("max_wait"          , "int"           , "Reconnect if waiting time is greater than minutes", 10       )]
+    __config__  = [("use_premium"       , "bool", "Use premium account if available"   , True),
+                   ("use_subfolder"     , "bool", "Save package to subfolder"          , True),
+                   ("subfolder_per_pack", "bool", "Create a subfolder for each package", True)]
 
     __description__ = """Turbobit.net folder decrypter plugin"""
     __license__     = "GPLv3"
@@ -27,19 +25,24 @@ class TurbobitNetFolder(SimpleCrypter):
     NAME_PATTERN = r'src=\'/js/lib/grid/icon/folder.png\'> <span>(?P<N>.+?)</span>'
 
 
-    def _get_links(self, id, page=1):
+    def _getLinks(self, id, page=1):
         gridFile = self.load("http://turbobit.net/downloadfolder/gridFile",
-                             get={'rootId': id, 'rows': 200, 'page': page})
-        grid = json.loads(gridFile)
+                             get={"rootId": id, "rows": 200, "page": page}, decode=True)
+        grid = json_loads(gridFile)
 
         if grid['rows']:
             for i in grid['rows']:
                 yield i['id']
-            for id in self._get_links(id, page + 1):
+            for id in self._getLinks(id, page + 1):
                 yield id
         else:
             return
 
 
-    def get_links(self):
-        return ["http://turbobit.net/%s.html" % id for id in self._get_links(self.info['pattern']['ID'])]
+    def getLinks(self):
+        id = re.match(self.__pattern__, self.pyfile.url).group('ID')
+        fixurl = lambda id: "http://turbobit.net/%s.html" % id
+        return map(fixurl, self._getLinks(id))
+
+
+getInfo = create_getInfo(TurbobitNetFolder)

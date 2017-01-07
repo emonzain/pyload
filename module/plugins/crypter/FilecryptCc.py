@@ -1,216 +1,177 @@
 # -*- coding: utf-8 -*-
-#
-# Test links:
-#   http://filecrypt.cc/Container/64E039F859.html
+# http://filecrypt.cc/Container/64E039F859.html
 
 import binascii
 import re
-import urlparse
 
-import Crypto.Cipher.AES
+from Crypto.Cipher import AES
+from urlparse import urljoin
 
-from module.plugins.internal.Crypter import Crypter
-from module.plugins.captcha.ReCaptcha import ReCaptcha
-from module.plugins.captcha.SolveMedia import SolveMedia
+from module.plugins.Crypter import Crypter
+from module.plugins.internal.CaptchaService import ReCaptcha
 
 
 class FilecryptCc(Crypter):
     __name__    = "FilecryptCc"
     __type__    = "crypter"
-    __version__ = "0.26"
-    __status__  = "testing"
+    __version__ = "0.11"
 
     __pattern__ = r'https?://(?:www\.)?filecrypt\.cc/Container/\w+'
-    __config__  = [("activated", "bool", "Activated", True)]
 
     __description__ = """Filecrypt.cc decrypter plugin"""
     __license__     = "GPLv3"
-    __authors__     = [("zapp-brannigan", "fuerst.reinje@web.de"      ),
-                       ("GammaC0de"     , "nitzo2001[AT]yahoo[DOT]com")]
+    __authors__     = [("zapp-brannigan", "")]
 
 
     # URL_REPLACEMENTS  = [(r'.html$', ""), (r'$', ".html")]  #@TODO: Extend SimpleCrypter
 
-    COOKIES          = [("filecrypt.cc", "lang", "en")]
+    DLC_LINK_PATTERN = r'<button class="dlcdownload" type="button" title="Download \*.dlc" onclick="DownloadDLC\(\'(.+)\'\);"><i></i><span>dlc<'
+    WEBLINK_PATTERN  = r"openLink.?'([\w_-]*)',"
 
-    DLC_LINK_PATTERN = r'onclick="DownloadDLC\(\'(.+)\'\);">'
-    WEBLINK_PATTERN  = r"openLink.?'([\w\-]*)',"
+    CAPTCHA_PATTERN        = r'<img id="nc" src="(.+?)"'
+    CIRCLE_CAPTCHA_PATTERN = r'<input type="image" src="(.+?)"'
 
-    CAPTCHA_PATTERN          = r'<h2>Security prompt</h2>'
-    INTERNAL_CAPTCHA_PATTERN = r'<img id="nc" src="(.+?)"'
-    CIRCLE_CAPTCHA_PATTERN   = r'<input type="image" src="(.+?)"'
-    KEY_CAPTCHA_PATTERN      = r"<script language=JavaScript src='(http://backs\.keycaptcha\.com/swfs/cap\.js)'"
-    SOLVE_MEDIA_PATTERN      = r'<script type="text/javascript" src="(http://api\.solvemedia\.com/papi/challenge.+?)"'
-
-    MIRROR_PAGE_PATTERN = r'"[\w]*" href="(https?://(?:www\.)?filecrypt.cc/Container/\w+\.html\?mirror=\d+)">'
+    MIRROR_PAGE_PATTERN = r'"[\w]*" href="(http://filecrypt.cc/Container/\w+\.html\?mirror=\d+)">'
 
 
     def setup(self):
-        self.urls = []
+        self.links = []
 
 
     def decrypt(self, pyfile):
-        self.data = self.load(pyfile.url)
+        self.html = self.load(pyfile.url)
 
-        if "content notfound" in self.data:  #@NOTE: "content notfound" is NOT a typo
+        if "content notfound" in self.html:  #@NOTE: "content notfound" is NOT a typo
             self.offline()
 
-        self.handle_password_protection()
-        self.handle_captcha()
-        self.handle_mirror_pages()
+        self.handlePasswordProtection()
+        self.handleCaptcha()
+        self.handleMirrorPages()
 
-        for handle in (self.handle_CNL, self.handle_weblinks, self.handle_dlc_container):
+        for handle in (self.handleCNL, self.handleWeblinks, self.handleDlcContainer):
             handle()
-            if self.urls:
-                self.packages = [(pyfile.package().name, self.urls, pyfile.package().name)]
+            if self.links:
+                self.packages = [(pyfile.package().name, self.links, pyfile.package().name)]
                 return
 
 
-    def handle_mirror_pages(self):
-        if "mirror=" not in self.site_with_links:
+    def handleMirrorPages(self):
+        if "mirror=" not in self.siteWithLinks:
             return
 
-        mirror = re.findall(self.MIRROR_PAGE_PATTERN, self.site_with_links)
+        mirror = re.findall(self.MIRROR_PAGE_PATTERN, self.siteWithLinks)
 
-        self.log_info(_("Found %d mirrors") % len(mirror))
+        self.logInfo(_("Found %d mirrors") % len(mirror))
 
         for i in mirror[1:]:
-            self.site_with_links = self.site_with_links + self.load(i)
+            self.siteWithLinks = self.siteWithLinks + self.load(i).decode("utf-8", "replace")
 
 
-    def handle_password_protection(self):
-        if '<input type="text" name="password"' not in self.data:
+    def handlePasswordProtection(self):
+        if '<input type="text" name="password"' not in self.html:
             return
 
-        self.log_info(_("Folder is password protected"))
+        self.logInfo(_("Folder is password protected"))
 
-        password = self.get_password()
+        password = self.getPassword()
 
         if not password:
             self.fail(_("Please enter the password in package section and try again"))
 
-        self.data = self.load(self.pyfile.url, post={'password': password})
+        self.html = self.load(self.pyfile.url, post={"password": password})
 
 
-    def handle_captcha(self):
-        if re.search(self.CAPTCHA_PATTERN, self.data):
-            m1  = re.search(self.INTERNAL_CAPTCHA_PATTERN, self.data)
-            m2 = re.search(self.CIRCLE_CAPTCHA_PATTERN, self.data)
-            m3 = re.search(self.SOLVE_MEDIA_PATTERN, self.data)
-            m4 = re.search(self.KEY_CAPTCHA_PATTERN, self.data)
+    def handleCaptcha(self):
+        m  = re.search(self.CAPTCHA_PATTERN, self.html)
+        m2 = re.search(self.CIRCLE_CAPTCHA_PATTERN, self.html)
 
-            if m1:  #: Normal captcha
-                self.log_debug("Internal Captcha URL: %s" % urlparse.urljoin(self.pyfile.url, m1.group(1)))
+        if m:  #: normal captcha
+            self.logDebug("Captcha-URL: %s" % m.group(1))
 
-                captcha_code = self.captcha.decrypt(urlparse.urljoin(self.pyfile.url, m1.group(1)),
-                                                    ref=True, input_type="gif")
+            captcha_code = self.decryptCaptcha(urljoin("http://filecrypt.cc", m.group(1)),
+                                               forceUser=True,
+                                               imgtype="gif")
 
-                self.site_with_links = self.load(self.pyfile.url,
-                                                 post={'recaptcha_response_field': captcha_code})
+            self.siteWithLinks = self.load(self.pyfile.url,
+                                           post={'recaptcha_response_field': captcha_code},
+                                           decode=True)
+        elif m2:  #: circle captcha
+            self.logDebug("Captcha-URL: %s" % m2.group(1))
 
-            elif m2:  #: Circle captcha
-                self.log_debug("Circle Captcha URL: %s" % urlparse.urljoin(self.pyfile.url, m2.group(1)))
+            captcha_code = self.decryptCaptcha(urljoin("http://filecrypt.cc", m2.group(1)),
+                                               forceUser=True,
+                                               imgtype="gif",
+                                               result_type='positional')
 
-                captcha_code = self.captcha.decrypt(urlparse.urljoin(self.pyfile.url, m2.group(1)),
-                                                    input_type="png", output_type='positional')
-
-                self.site_with_links = self.load(self.pyfile.url,
-                                                 post={'button.x': captcha_code[0],
-                                                       'button.y': captcha_code[1]})
-
-            elif m3:  #: Solvemedia captcha
-                self.log_debug("Solvemedia Captcha URL: %s" % urlparse.urljoin(self.pyfile.url, m3.group(1)))
-
-                solvemedia  = SolveMedia(self.pyfile)
-                captcha_key = solvemedia.detect_key()
-
-                if captcha_key:
-                    self.captcha = solvemedia
-                    response, challenge = solvemedia.challenge(captcha_key)
-                    self.site_with_links  = self.load(self.pyfile.url,
-                                                      post={'adcopy_response'  : response,
-                                                            'adcopy_challenge' : challenge})
-
-            elif m4:  #: Keycaptcha captcha
-                self.log_debug("Keycaptcha Captcha URL: %s unsupported, retrying" % m4.group(1))
-                self.retry()
-
-            else:
-                recaptcha   = ReCaptcha(self.pyfile)
-                captcha_key = recaptcha.detect_key()
-
-                if captcha_key:
-                    self.captcha = recaptcha
-
-                    try:
-                        response, challenge = recaptcha.challenge(captcha_key)
-
-                    except Exception:
-                        self.retry_captcha()
-
-                    self.site_with_links  = self.load(self.pyfile.url,
-                                                      post={'g-recaptcha-response': response})
-                else:
-                    self.log_info(_("Unknown captcha found, retrying"))
-                    self.retry()
-
-            if re.search(self.CAPTCHA_PATTERN, self.site_with_links):
-                self.retry_captcha()
+            self.siteWithLinks = self.load(self.pyfile.url,
+                                           post={'button.x': captcha_code[0], 'button.y': captcha_code[1]},
+                                           decode=True)
 
         else:
-            self.log_info(_("No captcha found"))
-            self.site_with_links = self.data
+            recaptcha   = ReCaptcha(self)
+            captcha_key = recaptcha.detect_key()
+
+            if captcha_key:
+                response, challenge = recaptcha.challenge(captcha_key)
+                self.siteWithLinks  = self.load(self.pyfile.url,
+                                                post={'g-recaptcha-response': response},
+                                                decode=True)
+            else:
+                self.logInfo(_("No captcha found"))
+                self.siteWithLinks = self.html
+
+        if "recaptcha_image" in self.siteWithLinks or "data-sitekey" in self.siteWithLinks:
+            self.invalidCaptcha()
+            self.retry()
 
 
+    def handleDlcContainer(self):
+        dlc = re.findall(self.DLC_LINK_PATTERN, self.siteWithLinks)
 
-    def handle_dlc_container(self):
-        dlcs = re.findall(self.DLC_LINK_PATTERN, self.site_with_links)
-
-        if not dlcs:
+        if not dlc:
             return
 
-        for _dlc in dlcs:
-            self.urls.append(urlparse.urljoin(self.pyfile.url, "/DLC/%s.dlc" % _dlc))
+        for i in dlc:
+            self.links.append("http://filecrypt.cc/DLC/%s.dlc" % i)
 
 
-    def handle_weblinks(self):
+    def handleWeblinks(self):
         try:
-            links = re.findall(self.WEBLINK_PATTERN, self.site_with_links)
+            weblinks = re.findall(self.WEBLINK_PATTERN, self.siteWithLinks)
 
-            for _link in links:
-                res   = self.load(urlparse.urljoin(self.pyfile.url, "/Link/%s.html" % _link))
+            for link in weblinks:
+                res   = self.load("http://filecrypt.cc/Link/%s.html" % link)
                 link2 = re.search('<iframe noresize src="(.*)"></iframe>', res)
-                if link2:
-                    res2  = self.load(link2.group(1), just_header=True)
-                    self.urls.append(res2['location'])
+                res2  = self.load(link2.group(1), just_header=True)
+                self.links.append(res2['location'])
 
         except Exception, e:
-            self.log_debug("Error decrypting weblinks: %s" % e)
+            self.logDebug("Error decrypting weblinks: %s" % e)
 
 
-    def handle_CNL(self):
+    def handleCNL(self):
         try:
-            vjk = re.findall('<input type="hidden" name="jk" value="function f\(\){ return \'(.*)\';}">', self.site_with_links)
-            vcrypted = re.findall('<input type="hidden" name="crypted" value="(.*)">', self.site_with_links)
+            vjk = re.findall('<input type="hidden" name="jk" value="function f\(\){ return \'(.*)\';}">', self.siteWithLinks)
+            vcrypted = re.findall('<input type="hidden" name="crypted" value="(.*)">', self.siteWithLinks)
 
             for i in xrange(len(vcrypted)):
-                self.urls.extend(self._get_links(vcrypted[i], vjk[i]))
+                self.links.extend(self._getLinks(vcrypted[i], vjk[i]))
 
         except Exception, e:
-            self.log_debug("Error decrypting CNL: %s" % e)
+            self.logDebug("Error decrypting CNL: %s" % e)
 
 
-    def _get_links(self, crypted, jk):
-        #: Get key
+    def _getLinks(self, crypted, jk):
+        # Get key
         key = binascii.unhexlify(str(jk))
 
-        #: Decrypt
+        # Decrypt
         Key  = key
         IV   = key
-        obj  = Crypto.Cipher.AES.new(Key, Crypto.Cipher.AES.MODE_CBC, IV)
+        obj  = AES.new(Key, AES.MODE_CBC, IV)
         text = obj.decrypt(crypted.decode('base64'))
 
-        #: Extract links
+        # Extract links
         text  = text.replace("\x00", "").replace("\r", "")
         links = filter(bool, text.split('\n'))
 

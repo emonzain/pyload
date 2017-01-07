@@ -1,92 +1,71 @@
 # -*- coding: utf-8 -*-
 
-import os
-import time
-import hashlib
-import urlparse
+import re
 
-from module.plugins.internal.misc import json
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.network.RequestFactory import getURL
+from module.plugins.Hoster import Hoster
 
 
-def get_api_password(episode):
-    api_key = "fb5f58a820353bd7095de526253c14fd"
+def getInfo(urls):
+    result = []
 
-    timestamp = int(round(time.time() / 24 / 3600))
-    api_pass = api_key + "/episode/" + episode + str(timestamp)
+    for url in urls:
 
-    m = hashlib.md5(api_pass)
-
-    return m.hexdigest()
-
-
-def get_all_link(data, container):
-    videos = []
-
-    for i in range(0, len(data["video_qualities"])):
-        if container == "webm" and len(data["video_qualities"][i]["formats"]) != 1:
-            videos.append(data["video_qualities"][i]["formats"][1]["source"])
-
+        html = getURL(url)
+        if re.search(StreamCz.OFFLINE_PATTERN, html):
+            # File offline
+            result.append((url, 0, 1, url))
         else:
-            videos.append(data["video_qualities"][i]["formats"][0]["source"])
-
-    return videos
-
-
-def get_link_quality(videos, quality):
-    quality_index = ["144p", "240p", "360p", "480p", "720p", "1080p"]
-    quality = quality_index.index(quality)
-
-    link = None
-    while quality >= 0:
-        if len(videos) >= quality + 1:
-            link = videos[quality]
-            break
-
-        else:
-            quality -= 1
-
-    return link
+            result.append((url, 0, 2, url))
+    yield result
 
 
-class StreamCz(SimpleHoster):
+class StreamCz(Hoster):
     __name__    = "StreamCz"
     __type__    = "hoster"
-    __version__ = "0.39"
-    __status__  = "testing"
+    __version__ = "0.20"
 
-    __pattern__ = r'https?://(?:www\.)?stream\.cz/[^/]+/(?P<EP>\d+).+'
-    __config__  = [("activated", "bool",                      "Activated", True),
-                   ("quality",   "144p;240p;360p;480p;720p;1080p", "Quality",   "720p"),
-                   ("container", "mp4;webm",                  "Container", "mp4"),]
+    __pattern__ = r'https?://(?:www\.)?stream\.cz/[^/]+/\d+'
 
     __description__ = """Stream.cz hoster plugin"""
-    __authors__     = [("ondrej", "git@ondrej.it")]
+    __license__     = "GPLv3"
+    __authors__     = [("zoidberg", "zoidberg@mujmail.cz")]
+
+
+    NAME_PATTERN = r'<link rel="video_src" href="http://www\.stream\.cz/\w+/(\d+)-([^"]+)" />'
+    OFFLINE_PATTERN = r'<h1 class="commonTitle">Str.nku nebylo mo.n. nal.zt \(404\)</h1>'
+
+    CDN_PATTERN = r'<param name="flashvars" value="[^"]*&id=(?P<ID>\d+)(?:&cdnLQ=(?P<cdnLQ>\d*))?(?:&cdnHQ=(?P<cdnHQ>\d*))?(?:&cdnHD=(?P<cdnHD>\d*))?&'
 
 
     def setup(self):
-        self.resume_download = True
-        self.multiDL         = True
+        self.resumeDownload = True
+        self.multiDL        = True
+
 
     def process(self, pyfile):
-        episode = self.info['pattern']['EP']
-        api_password = get_api_password(episode)
+        self.html = self.load(pyfile.url, decode=True)
 
-        api_url = urlparse.urljoin("https://www.stream.cz/API/episode/", episode)
-        self.req.putHeader("Api-Password", api_password)
-        resp = self.load(api_url)
+        if re.search(self.OFFLINE_PATTERN, self.html):
+            self.offline()
 
-        data = json.loads(resp)
+        m = re.search(self.CDN_PATTERN, self.html)
+        if m is None:
+            self.error(_("CDN_PATTERN not found"))
+        cdn = m.groupdict()
+        self.logDebug(cdn)
+        for cdnkey in ("cdnHD", "cdnHQ", "cdnLQ"):
+            if cdnkey in cdn and cdn[cdnkey] > '':
+                cdnid = cdn[cdnkey]
+                break
+        else:
+            self.fail(_("Stream URL not found"))
 
-        quality = self.config.get("quality")
-        container = self.config.get("container")
+        m = re.search(self.NAME_PATTERN, self.html)
+        if m is None:
+            self.error(_("NAME_PATTERN not found"))
+        pyfile.name = "%s-%s.%s.mp4" % (m.group(2), m.group(1), cdnkey[-2:])
 
-        videos = get_all_link(data, container)
-        link = get_link_quality(videos, quality)
-
-        if link:
-            link_name, container = os.path.splitext(link)
-            self.pyfile.name = data["name"] + container
-
-            self.log_info(_("Downloading file..."))
-            self.download(link)
+        download_url = "http://cdn-dispatcher.stream.cz/?id=" + cdnid
+        self.logInfo(_("STREAM: %s") % cdnkey[-2:], download_url)
+        self.download(download_url)

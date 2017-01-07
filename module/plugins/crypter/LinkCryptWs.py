@@ -3,28 +3,26 @@
 import binascii
 import re
 
-import Crypto.Cipher.AES
 import pycurl
 
-from module.plugins.internal.Crypter import Crypter
-from module.plugins.internal.misc import html_unescape, set_cookie
+from Crypto.Cipher import AES
+
+from module.plugins.Crypter import Crypter
+from module.utils import html_unescape
 
 
 class LinkCryptWs(Crypter):
     __name__    = "LinkCryptWs"
     __type__    = "crypter"
-    __version__ = "0.19"
-    __status__  = "testing"
+    __version__ = "0.08"
 
     __pattern__ = r'http://(?:www\.)?linkcrypt\.ws/(dir|container)/(?P<ID>\w+)'
-    __config__  = [("activated", "bool", "Activated", True)]
 
     __description__ = """LinkCrypt.ws decrypter plugin"""
     __license__     = "GPLv3"
-    __authors__     = [("kagenoshin",  "kagenoshin[AT]gmx[DOT]ch"),
-                       ("glukgluk",    None                      ),
-                       ("Gummibaer",   None                      ),
-                       ("Arno-Nymous", None                      )]
+    __authors__     = [("kagenoshin", "kagenoshin[AT]gmx[DOT]ch"),
+                       ("glukgluk", None),
+                       ("Gummibaer", None)]
 
 
     CRYPTED_KEY = "crypted"
@@ -32,20 +30,20 @@ class LinkCryptWs(Crypter):
 
 
     def setup(self):
-        self.urls   = []
+        self.captcha = False
+        self.links   = []
         self.sources = ['cnl', 'web', 'dlc', 'rsdf', 'ccf']
 
 
     def prepare(self):
-        #: Init
+        # Init
         self.fileid = re.match(self.__pattern__, self.pyfile.url).group('ID')
 
-        set_cookie(self.req.cj, "linkcrypt.ws", "language", "en")
+        self.req.cj.setCookie("linkcrypt.ws", "language", "en")
 
-        #: Request package
-        self.req.http.c.setopt(pycurl.USERAGENT, "Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko")  #: Better chance to not get those key-captchas
-        self.data = self.load(self.pyfile.url)
-        self.data = self.load(self.pyfile.url)
+        # Request package
+        self.req.http.c.setopt(pycurl.USERAGENT, "Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko")  #: better chance to not get those key-captchas
+        self.html = self.load(self.pyfile.url)
 
 
     def decrypt(self, pyfile):
@@ -54,162 +52,175 @@ class LinkCryptWs(Crypter):
 
         self.prepare()
 
-        if not self.is_online():
+        if not self.isOnline():
             self.offline()
 
-        if self.is_key_captcha_protected():
+        if self.isKeyCaptchaProtected():
             self.retry(8, 15, _("Can't handle Key-Captcha"))
 
-        if self.is_captcha_protected():
-            self.unlock_captcha_protection()
-            self.handle_captcha_errors()
+        if self.isCaptchaProtected():
+            self.captcha = True
+            self.unlockCaptchaProtection()
+            self.handleCaptchaErrors()
 
-        #: Check for protection
-        if self.is_password_protected():
-            self.unlock_password_protection()
-            self.handle_errors()
+        # Check for protection
+        if self.isPasswordProtected():
+            self.unlockPasswordProtection()
+            self.handleErrors()
 
-        #: Get unrar password
+        # get unrar password
         self.getunrarpw()
 
-        #: Get package name and folder
-        pack_name, folder_name = self.get_package_info()
+        # Get package name and folder
+        package_name, folder_name = self.getPackageInfo()
 
-        #: Get the container definitions from script section
+        #get the container definitions from script section
         self.get_container_html()
 
-        #: Extract package links
-        for source_type in self.sources:
-            links = self.handle_link_source(source_type)
+        # Extract package links
+        for type in self.sources:
+            links = self.handleLinkSource(type)
 
             if links:
-                self.urls.extend(links)
+                self.links.extend(links)
                 break
 
-        if self.urls:
-            self.packages = [(pack_name, self.urls, folder_name)]
+        if self.links:
+            self.packages = [(package_name, self.links, folder_name)]
 
 
-    def is_online(self):
-        if "<title>Linkcrypt.ws // Error 404</title>" in self.data:
-            self.log_debug(_("Folder doesn't exist anymore"))
+    def isOnline(self):
+        if "<title>Linkcrypt.ws // Error 404</title>" in self.html:
+            self.logDebug("folder doesen't exist anymore")
             return False
         else:
             return True
 
 
-    def is_password_protected(self):
-        if "Authorizing" in self.data:
-            self.log_debug(_("Links are password protected"))
+    def isPasswordProtected(self):
+        if "Authorizing" in self.html:
+            self.logDebug("Links are password protected")
             return True
         else:
             return False
 
 
-    def is_captcha_protected(self):
-        if ('Linkcrypt.ws // Captx' in self.data) or ('Linkcrypt.ws // TextX' in self.data):
-            self.log_debug("Links are captcha protected")
+    def isCaptchaProtected(self):
+        if 'id="captcha">' in self.html:
+            self.logDebug("Links are captcha protected")
             return True
         else:
             return False
 
 
-    def is_key_captcha_protected(self):
-        if re.search(r'>If the folder does not open after klick on <', self.data, re.I):
+    def isKeyCaptchaProtected(self):
+        if re.search(r'>If the folder does not open after klick on <', self.html, re.I):
             return True
         else:
             return False
 
 
-    def unlock_password_protection(self):
-        password = self.get_password()
+    def unlockPasswordProtection(self):
+        password = self.getPassword()
 
         if password:
-            self.log_debug(_("Submitting password [%s] for protected links") % password)
-            self.data = self.load(self.pyfile.url, post={'password': password, 'x': "0", 'y': "0"})
+            self.logDebug("Submitting password [%s] for protected links" % password)
+            self.html = self.load(self.pyfile.url, post={"password": password, 'x': "0", 'y': "0"})
         else:
             self.fail(_("Folder is password protected"))
 
 
-    def unlock_captcha_protection(self):
-        captcha_url  = 'http://linkcrypt.ws/captx.html?secid=id=&id='
-        captcha_code = self.captcha.decrypt(captcha_url, input_type="gif", output_type='positional')
+    def unlockCaptchaProtection(self):
+        captcha_url  = re.search(r'<form.*?id\s*?=\s*?"captcha"[^>]*?>.*?<\s*?input.*?src="([^"]*?)"', self.html, re.I | re.S).group(1)
+        captcha_code = self.decryptCaptcha(captcha_url, forceUser=True, imgtype="gif", result_type='positional')
 
-        self.data = self.load(self.pyfile.url, post={'x': captcha_code[0], 'y': captcha_code[1]})
+        self.html = self.load(self.pyfile.url, post={"x": captcha_code[0], "y": captcha_code[1]})
 
 
-    def get_package_info(self):
+    def getPackageInfo(self):
         name   = self.pyfile.package().name
         folder = self.pyfile.package().folder
 
-        self.log_debug(_("Defaulting to pyfile name [%s] and folder [%s] for package") % (name, folder))
+        self.logDebug("Defaulting to pyfile name [%s] and folder [%s] for package" % (name, folder))
 
         return name, folder
 
 
     def getunrarpw(self):
-        # Skip password parsing, since the method was not reliable due to the scrambling of the form data.
-        # That way one could not predict the exact position of the password at a certain index.
-        return
+        sitein = self.html
+        indexi = sitein.find("|source|") + 8
+        indexe = sitein.find("|",indexi)
+
+        unrarpw = sitein[indexi:indexe]
+
+        if not (unrarpw == "Password" or "Dateipasswort") :
+            self.logDebug("File password set to: [%s]"% unrarpw)
+            self.pyfile.package().password = unrarpw
 
 
-    def handle_errors(self):
-        if self.is_password_protected():
-            self.fail(_("Wrong password"))
+    def handleErrors(self):
+        if self.isPasswordProtected():
+            self.fail(_("Incorrect password"))
 
 
-    def handle_captcha_errors(self):
-        if "Your choice was wrong" in self.data:
-            self.retry_captcha()
+    def handleCaptchaErrors(self):
+        if self.captcha:
+            if "Your choice was wrong!" in self.html:
+                self.invalidCaptcha()
+                self.retry()
+            else:
+                self.correctCaptcha()
+
+
+    def handleLinkSource(self, type):
+        if type == 'cnl':
+                return self.handleCNL2()
+
+        elif type == 'web':
+                return self.handleWebLinks()
+
+        elif type in ('rsdf', 'ccf', 'dlc'):
+                return self.handleContainer(type)
+
         else:
-            self.captcha.correct()
+            self.fail(_("Unknown source type: %s") % type)  #@TODO: Replace with self.error in 0.4.10
 
 
-    def handle_link_source(self, source_type):
-        if source_type == "cnl":
-                return self.handle_CNL2()
+    def handleWebLinks(self):
+        self.logDebug("Search for Web links ")
 
-        elif source_type == "web":
-                return self.handle_web_links()
+        package_links = []
+        pattern = r'<form action="http://linkcrypt.ws/out.html"[^>]*?>.*?<input[^>]*?value="([^"]*?)"[^>]*?name="file"'
+        ids = re.findall(pattern, self.html, re.I | re.S)
 
-        elif source_type in ('rsdf', 'ccf', 'dlc'):
-                return self.handle_container(source_type)
-
-        else:
-            self.fail(_("Unknown source type: %s") % source_type)  #@TODO: Replace with self.error in 0.4.10
-
-
-    def handle_web_links(self):
-        self.log_debug("Search for Web links ")
-
-        pack_links = []
-        pattern = r'<form action="http://linkcrypt.ws/out.html"[^>]*?>.*?<input[^>]*?value="(.+?)"[^>]*?name="file"'
-        ids = re.findall(pattern, self.data, re.I | re.S)
-
-        self.log_debug(_("Decrypting %s Web links") % len(ids))
+        self.logDebug("Decrypting %d Web links" % len(ids))
 
         for idx, weblink_id in enumerate(ids):
             try:
+                self.logDebug("Decrypting Web link %d, %s" % (idx + 1, weblink_id))
+
                 res = self.load("http://linkcrypt.ws/out.html", post = {'file':weblink_id})
 
-                indexs = res.find("href=doNotTrack('") + 17
-                indexe = res.find("'", indexs)
+                indexs = res.find("window.location =") + 19
+                indexe = res.find('"', indexs)
 
                 link2 = res[indexs:indexe]
 
+                self.logDebug(link2)
+
                 link2 = html_unescape(link2)
-                pack_links.append(link2)
+                package_links.append(link2)
 
             except Exception, detail:
-                self.log_debug(_("Error decrypting Web link %s, %s") % (weblink_id, detail))
+                self.logDebug("Error decrypting Web link %s, %s" % (weblink_id, detail))
 
-        return pack_links
+        return package_links
 
 
     def get_container_html(self):
         self.container_html = []
 
-        script = re.search(r'<script.*?javascript[^>]*?>.*(eval.*?)\s*eval.*</script>.*<div class="clearfix', self.data, re.I | re.S)
+        script = re.search(r'<div.*?id="ad_cont".*?<script.*?javascrip[^>]*?>(.*?)</script', self.html, re.I | re.S)
 
         if script:
             container_html_text = script.group(1)
@@ -221,91 +232,91 @@ class LinkCryptWs(Crypter):
         return self.js.eval(line.replace('{}))',"{}).replace('document.open();document.write','').replace(';document.close();',''))"))
 
 
-    def handle_container(self, container_type):
-        pack_links = []
-        container_type = container_type.lower()
+    def handleContainer(self, type):
+        package_links = []
+        type = type.lower()
 
-        self.log_debug(_("Search for %s Container links") % container_type.upper())
+        self.logDebug('Search for %s Container links' % type.upper())
 
-        if not container_type.isalnum():  #: Check to prevent broken re-pattern (cnl2, rsdf, ccf, dlc, web are all alpha-numeric)
-            self.fail(_("Unknown container type: %s") % container_type)  #@TODO: Replace with self.error in 0.4.10
+        if not type.isalnum():  # check to prevent broken re-pattern (cnl2,rsdf,ccf,dlc,web are all alpha-numeric)
+            self.fail(_("Unknown container type: %s") % type)  #@TODO: Replace with self.error in 0.4.10
 
         for line in self.container_html:
-            if container_type in line:
+            if type in line:
                 jseval = self.handle_javascript(line)
-                clink = re.search(r'href=["\'](["\']+)', jseval, re.I)
+                clink = re.search(r'href=["\']([^"\']*?)["\']',jseval,re.I)
 
                 if not clink:
                     continue
 
-                self.log_debug("clink found")
+                self.logDebug("clink avaible")
 
-                pack_name, folder_name = self.get_package_info()
-                self.log_debug(_("Added package with name %s.%s and container link %s") % (pack_name, container_type, clink.group(1)))
-                self.pyload.api.uploadContainer('.'.join([pack_name, container_type]), self.load(clink.group(1)))
+                package_name, folder_name = self.getPackageInfo()
+                self.logDebug("Added package with name %s.%s and container link %s" %( package_name, type, clink.group(1)))
+                self.core.api.uploadContainer( "%s.%s" %(package_name, type), self.load(clink.group(1)))
                 return "Found it"
 
-        return pack_links
+        return package_links
 
 
-    def handle_CNL2(self):
-        self.log_debug("Search for CNL links")
+    def handleCNL2(self):
+        self.logDebug("Search for CNL links")
 
-        pack_links = []
+        package_links = []
         cnl_line = None
 
         for line in self.container_html:
-            if "addcrypted2" in line:
+            if "cnl" in line:
                 cnl_line = line
                 break
 
         if cnl_line:
-            self.log_debug("cnl_line found")
+            self.logDebug("cnl_line gefunden")
 
         try:
             cnl_section = self.handle_javascript(cnl_line)
-            (vcrypted, vjk) = self._get_cipher_params(cnl_section)
+            (vcrypted, vjk) = self._getCipherParams(cnl_section)
             for (crypted, jk) in zip(vcrypted, vjk):
-                pack_links.extend(self._get_links(crypted, jk))
-
+                package_links.extend(self._getLinks(crypted, jk))
         except Exception:
-            self.log_error(_("Unable to decrypt CNL links (JS Error) try to get over links"), trace=True)
-            return self.handle_web_links()
+            self.logError(_("Unable to decrypt CNL links (JS Error) try to get over links"))
+            return self.handleWebLinks()
 
-        return pack_links
+        return package_links
 
 
-    def _get_cipher_params(self, cnl_section):
-        #: Get jk
-        jk_re = r'<INPUT.*?NAME="%s".*?VALUE="\D*(\d*)\D*"' % LinkCryptWs.JK_KEY
+    def _getCipherParams(self, cnl_section):
+        # Get jk
+        jk_re = r'<INPUT.*?NAME="%s".*?VALUE="(.*?)"' % LinkCryptWs.JK_KEY
         vjk = re.findall(jk_re, cnl_section)
 
-        #: Get crypted
+        # Get crypted
         crypted_re = r'<INPUT.*?NAME="%s".*?VALUE="(.*?)"' % LinkCryptWs.CRYPTED_KEY
         vcrypted = re.findall(crypted_re, cnl_section)
 
-        #: Log and return
-        self.log_debug(_("Detected %s crypted blocks") % len(vcrypted))
+        # Log and return
+        self.logDebug("Detected %d crypted blocks" % len(vcrypted))
         return vcrypted, vjk
 
 
-    def _get_links(self, crypted, jk):
-        #: Get key
-        key     = binascii.unhexlify(jk)
+    def _getLinks(self, crypted, jk):
+        # Get key
+        jreturn = self.js.eval("%s f()" % jk)
+        key     = binascii.unhexlify(jreturn)
 
-        self.log_debug(_("JsEngine returns value [%s]") % key)
+        self.logDebug("JsEngine returns value [%s]" % jreturn)
 
-        #: Decrypt
+        # Decrypt
         Key  = key
         IV   = key
-        obj  = Crypto.Cipher.AES.new(Key, Crypto.Cipher.AES.MODE_CBC, IV)
+        obj  = AES.new(Key, AES.MODE_CBC, IV)
         text = obj.decrypt(crypted.decode('base64'))
 
-        #: Extract links
+        # Extract links
         text  = text.replace("\x00", "").replace("\r", "")
         links = filter(bool, text.split('\n'))
 
-        #: Log and return
-        self.log_debug(_("Package has %s links")% len(links))
+        # Log and return
+        self.logDebug("Package has %d links" % len(links))
 
         return links

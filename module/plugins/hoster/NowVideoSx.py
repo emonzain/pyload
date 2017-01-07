@@ -2,21 +2,16 @@
 
 import re
 
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class NowVideoSx(SimpleHoster):
     __name__    = "NowVideoSx"
     __type__    = "hoster"
-    __version__ = "0.16"
-    __status__  = "testing"
+    __version__ = "0.12"
 
     __pattern__ = r'http://(?:www\.)?nowvideo\.[a-zA-Z]{2,}/(video/|mobile/(#/videos/|.+?id=))(?P<ID>\w+)'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """NowVideo.sx hoster plugin"""
     __license__     = "GPLv3"
@@ -33,13 +28,18 @@ class NowVideoSx(SimpleHoster):
 
 
     def setup(self):
-        self.resume_download = True
+        self.resumeDownload = True
         self.multiDL        = True
 
 
-    def handle_free(self, pyfile):
-        self.data = self.load("http://www.nowvideo.sx/mobile/video.php", get={'id': self.info['pattern']['ID']})
+    def handleFree(self, pyfile):
+        self.html = self.load("http://www.nowvideo.sx/mobile/video.php", get={'id': self.info['pattern']['ID']})
 
-        m = re.search(self.LINK_FREE_PATTERN, self.data)
-        if m is not None:
-            self.link = m.group(1)
+        m = re.search(self.LINK_FREE_PATTERN, self.html)
+        if m is None:
+            self.error(_("Free download link not found"))
+
+        self.download(m.group(1))
+
+
+getInfo = create_getInfo(NowVideoSx)

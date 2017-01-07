@@ -2,62 +2,63 @@
 
 import re
 
-from module.network.RequestFactory import getURL as get_url
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.network.RequestFactory import getURL
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class WebshareCz(SimpleHoster):
     __name__    = "WebshareCz"
     __type__    = "hoster"
-    __version__ = "0.24"
-    __status__  = "testing"
+    __version__ = "0.16"
 
-    __pattern__ = r'https?://(?:www\.)?(en\.)?webshare\.cz/(?:#/)?(file/)?(?P<ID>\w+)'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __pattern__ = r'https?://(?:www\.)?webshare\.cz/(?:#/)?file/(?P<ID>\w+)'
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """WebShare.cz hoster plugin"""
     __license__     = "GPLv3"
-    __authors__     = [("stickell", "l.stickell@yahoo.it"    ),
-                       ("rush"    , "radek.senfeld@gmail.com"),
-                       ("ondrej"  , "git@ondrej.it"          ),]
+    __authors__     = [("stickell", "l.stickell@yahoo.it"),
+                       ("rush", "radek.senfeld@gmail.com")]
 
 
     @classmethod
-    def api_info(cls, url):
-        info = {}
-        api_data  = get_url("https://webshare.cz/api/file_info/",
-                       post={'ident': re.match(cls.__pattern__, url).group('ID'),
-                             'wst'  : ""})
+    def getInfo(cls, url="", html=""):
+        info = super(WebshareCz, cls).getInfo(url, html)
 
-        if re.search(r'<status>OK', api_data):
-            info['status'] = 2
-            info['name']   = re.search(r'<name>(.+?)<', api_data).group(1)
-            info['size']   = re.search(r'<size>(.+?)<', api_data).group(1)
-        elif re.search(r'<status>FATAL', api_data):
-            info['status'] = 1
-        else:
-            info['status'] = 8
-            info['error']  = _("Could not find required xml data")
+        if url:
+            info['pattern'] = re.match(cls.__pattern__, url).groupdict()
+
+            api_data = getURL("https://webshare.cz/api/file_info/",
+                              post={'ident': info['pattern']['ID']},
+                              decode=True)
+
+            if 'File not found' in api_data:
+                info['status'] = 1
+            else:
+                info["status"] = 2
+                info['name']   = re.search('<name>(.+)</name>', api_data).group(1) or info['name']
+                info['size']   = re.search('<size>(.+)</size>', api_data).group(1) or info['size']
 
         return info
 
 
-    def handle_free(self, pyfile):
-        wst = self.account.get_data('wst') if self.account else None
+    def handleFree(self, pyfile):
+        wst = self.account.infos['wst'] if self.account and 'wst' in self.account.infos else ""
 
-        api_data = get_url("https://webshare.cz/api/file_link/",
-                           post={'ident': self.info['pattern']['ID'], 'wst': wst})
+        api_data = getURL('https://webshare.cz/api/file_link/',
+                          post={'ident': self.info['pattern']['ID'], 'wst': wst},
+                          decode=True)
 
-        self.log_debug("API data: " + api_data)
+        self.logDebug("API data: " + api_data)
 
         m = re.search('<link>(.+)</link>', api_data)
-        if m is not None:
-            self.link = m.group(1)
+        if m is None:
+            self.error(_("Unable to detect direct link"))
+
+        self.link = m.group(1)
 
 
-    def handle_premium(self, pyfile):
-        return self.handle_free(pyfile)
+    def handlePremium(self, pyfile):
+        return self.handleFree(pyfile)
+
+
+getInfo = create_getInfo(WebshareCz)

@@ -2,82 +2,90 @@
 
 import re
 import time
-import urlparse
 
-from module.network.RequestFactory import getURL as get_url
-from module.plugins.internal.Base import parse_fileInfo
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from urlparse import urljoin
+
+from module.network.RequestFactory import getURL
+from module.plugins.internal.SimpleHoster import SimpleHoster, parseFileInfo
 
 
-def double_decode(m):
+def getInfo(urls):
+    for url in urls:
+        html = getURL("http://www.fshare.vn/check_link.php",
+                      post={'action': "check_link", 'arrlinks': url},
+                      decode=True)
+
+        yield parseFileInfo(FshareVn, url, html)
+
+
+def doubleDecode(m):
     return m.group(1).decode('raw_unicode_escape')
 
 
 class FshareVn(SimpleHoster):
     __name__    = "FshareVn"
     __type__    = "hoster"
-    __version__ = "0.25"
-    __status__  = "testing"
+    __version__ = "0.20"
 
     __pattern__ = r'http://(?:www\.)?fshare\.vn/file/.+'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """FshareVn hoster plugin"""
     __license__     = "GPLv3"
     __authors__     = [("zoidberg", "zoidberg@mujmail.cz")]
 
 
-    INFO_PATTERN    = r'<p>(?P<N>.+?)<\\/p>[\\trn\s]*<p>(?P<S>[\d.,]+)\s*(?P<U>[\w^_]+)<\\/p>'
+    INFO_PATTERN = r'<p>(?P<N>[^<]+)<\\/p>[\\trn\s]*<p>(?P<S>[\d.,]+)\s*(?P<U>[\w^_]+)<\\/p>'
     OFFLINE_PATTERN = r'<div class=\\"f_left file_w\\"|<\\/p>\\t\\t\\t\\t\\r\\n\\t\\t<p><\\/p>\\t\\t\\r\\n\\t\\t<p>0 KB<\\/p>'
 
-    NAME_REPLACEMENTS = [("(.*)", double_decode)]
+    NAME_REPLACEMENTS = [("(.*)", doubleDecode)]
 
     LINK_FREE_PATTERN = r'action="(http://download.*?)[#"]'
     WAIT_PATTERN = ur'Lượt tải xuống kế tiếp là:\s*(.*?)\s*<'
 
 
     def preload(self):
-        self.data = self.load("http://www.fshare.vn/check_link.php",
-                              post={'action': "check_link", 'arrlinks': pyfile.url})
+        self.html = self.load("http://www.fshare.vn/check_link.php",
+                              post={'action': "check_link", 'arrlinks': pyfile.url},
+                              decode=True)
+
+        if isinstance(self.TEXT_ENCODING, basestring):
+            self.html = unicode(self.html, self.TEXT_ENCODING)
 
 
-    def handle_free(self, pyfile):
-        self.data = self.load(pyfile.url)
+    def handleFree(self, pyfile):
+        self.html = self.load(pyfile.url, decode=True)
 
-        self.check_errors()
+        self.checkErrors()
 
-        action, inputs = self.parse_html_form('frm_download')
-        url = urlparse.urljoin(pyfile.url, action)
+        action, inputs = self.parseHtmlForm('frm_download')
+        url = urljoin(pyfile.url, action)
 
         if not inputs:
             self.error(_("No FORM"))
 
         elif 'link_file_pwd_dl' in inputs:
-            password = self.get_password()
+            password = self.getPassword()
 
             if password:
-                self.log_info(_("Password protected link, trying ") + password)
+                self.logInfo(_("Password protected link, trying ") + password)
                 inputs['link_file_pwd_dl'] = password
-                self.data = self.load(url, post=inputs)
+                self.html = self.load(url, post=inputs, decode=True)
 
-                if 'name="link_file_pwd_dl"' in self.data:
-                    self.fail(_("Wrong password"))
+                if 'name="link_file_pwd_dl"' in self.html:
+                    self.fail(_("Incorrect password"))
             else:
                 self.fail(_("No password found"))
 
         else:
-            self.data = self.load(url, post=inputs)
+            self.html = self.load(url, post=inputs, decode=True)
 
-        self.check_errors()
+        self.checkErrors()
 
-        m = re.search(r'var count = (\d+)', self.data)
-        self.set_wait(int(m.group(1)) if m else 30)
+        m = re.search(r'var count = (\d+)', self.html)
+        self.setWait(int(m.group(1)) if m else 30)
 
-        m = re.search(self.LINK_FREE_PATTERN, self.data)
+        m = re.search(self.LINK_FREE_PATTERN, self.html)
         if m is None:
             self.error(_("LINK_FREE_PATTERN not found"))
 
@@ -85,19 +93,19 @@ class FshareVn(SimpleHoster):
         self.wait()
 
 
-    def check_errors(self):
-        if '/error.php?' in self.req.lastEffectiveURL or u"Liên kết bạn chọn không tồn" in self.data:
+    def checkErrors(self):
+        if '/error.php?' in self.req.lastEffectiveURL or u"Liên kết bạn chọn không tồn" in self.html:
             self.offline()
 
-        m = re.search(self.WAIT_PATTERN, self.data)
-        if m is not None:
-            self.log_info(_("Wait until %s ICT") % m.group(1))
+        m = re.search(self.WAIT_PATTERN, self.html)
+        if m:
+            self.logInfo(_("Wait until %s ICT") % m.group(1))
             wait_until = time.mktime.time(time.strptime.time(m.group(1), "%d/%m/%Y %H:%M"))
             self.wait(wait_until - time.mktime.time(time.gmtime.time()) - 7 * 60 * 60, True)
             self.retry()
-        elif '<ul class="message-error">' in self.data:
+        elif '<ul class="message-error">' in self.html:
             msg = "Unknown error occured or wait time not parsed"
-            self.log_error(msg)
+            self.logError(msg)
             self.retry(30, 2 * 60, msg)
 
         self.info.pop('error', None)

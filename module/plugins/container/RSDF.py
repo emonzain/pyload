@@ -5,22 +5,18 @@ from __future__ import with_statement
 import binascii
 import re
 
-import Crypto.Cipher.AES
+from Crypto.Cipher import AES
 
-from module.plugins.internal.Container import Container
-from module.plugins.internal.misc import encode
+from module.plugins.Container import Container
+from module.utils import fs_encode
 
 
 class RSDF(Container):
     __name__    = "RSDF"
     __type__    = "container"
-    __version__ = "0.36"
-    __status__  = "testing"
+    __version__ = "0.29"
 
     __pattern__ = r'.+\.rsdf$'
-    __config__  = [("activated"         , "bool"          , "Activated"                       , True     ),
-                   ("use_premium"       , "bool"          , "Use premium account if available", True     ),
-                   ("folder_per_package", "Default;Yes;No", "Create folder for each package"  , "Default")]
 
     __description__ = """RSDF container decrypter plugin"""
     __license__     = "GPLv3"
@@ -37,18 +33,18 @@ class RSDF(Container):
         KEY = binascii.unhexlify(self.KEY)
         IV  = binascii.unhexlify(self.IV)
 
-        iv     = Crypto.Cipher.AES.new(KEY, Crypto.Cipher.AES.MODE_ECB).encrypt(IV)
-        cipher = Crypto.Cipher.AES.new(KEY, Crypto.Cipher.AES.MODE_CFB, iv)
+        iv     = AES.new(KEY, AES.MODE_ECB).encrypt(IV)
+        cipher = AES.new(KEY, AES.MODE_CFB, iv)
 
         try:
-            fs_filename = encode(pyfile.url)
+            fs_filename = fs_encode(pyfile.url.strip())
             with open(fs_filename, 'r') as rsdf:
                 data = rsdf.read()
 
         except IOError, e:
-            self.fail(e.message)
+            self.fail(e)
 
-        if re.search(r'<title>404 - Not Found</title>', data):
+        if re.search(r"<title>404 - Not Found</title>", data):
             pyfile.setStatus("offline")
 
         else:
@@ -62,4 +58,4 @@ class RSDF(Container):
                 if not link:
                     continue
                 link = cipher.decrypt(link.decode('base64')).replace('CCF: ', '')
-                self.links.append(link)
+                self.urls.append(link)

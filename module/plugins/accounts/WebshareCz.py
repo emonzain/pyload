@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
 
-import hashlib
 import re
 import time
 
-import passlib.hash
+from hashlib import md5, sha1
+from passlib.hash import md5_crypt
 
-from module.plugins.internal.Account import Account
+from module.plugins.Account import Account
 
 
 class WebshareCz(Account):
     __name__    = "WebshareCz"
     __type__    = "account"
-    __version__ = "0.14"
-    __status__  = "testing"
+    __version__ = "0.07"
 
     __description__ = """Webshare.cz account plugin"""
     __license__     = "GPLv3"
@@ -25,42 +24,45 @@ class WebshareCz(Account):
     TRAFFIC_LEFT_PATTERN = r'<bytes>(.+)</bytes>'
 
 
-    def grab_info(self, user, password, data):
-        html = self.load("https://webshare.cz/api/user_data/",
-                        post={'wst': data.get('wst', None)})
+    def loadAccountInfo(self, user, req):
+        html = req.load("https://webshare.cz/api/user_data/",
+                        post={'wst': self.infos['wst']},
+                        decode=True)
 
-        self.log_debug("Response: " + html)
+        self.logDebug("Response: " + html)
 
         expiredate = re.search(self.VALID_UNTIL_PATTERN, html).group(1)
-        self.log_debug("Expire date: " + expiredate)
+        self.logDebug("Expire date: " + expiredate)
 
         validuntil  = time.mktime(time.strptime(expiredate, "%Y-%m-%d %H:%M:%S"))
-        trafficleft = self.parse_traffic(re.search(self.TRAFFIC_LEFT_PATTERN, html).group(1))
+        trafficleft = self.parseTraffic(re.search(self.TRAFFIC_LEFT_PATTERN, html).group(1))
         premium     = validuntil > time.time()
 
         return {'validuntil': validuntil, 'trafficleft': -1, 'premium': premium}
 
 
-    def signin(self, user, password, data):
-        salt = self.load("https://webshare.cz/api/salt/",
-                         post={'username_or_email': user,
-                               'wst'              : ""})
+    def login(self, user, data, req):
+        salt = req.load("https://webshare.cz/api/salt/",
+                        post={'username_or_email': user,
+                              'wst'              : ""},
+                        decode=True)
 
         if "<status>OK</status>" not in salt:
-            self.fail_login()
+            self.wrongPassword()
 
         salt     = re.search('<salt>(.+)</salt>', salt).group(1)
-        password = hashlib.sha1(passlib.hash.md5_crypt.encrypt(password, salt=salt)).hexdigest()
-        digest   = hashlib.md5(user + ":Webshare:" + password).hexdigest()
+        password = sha1(md5_crypt.encrypt(data["password"], salt=salt)).hexdigest()
+        digest   = md5(user + ":Webshare:" + password).hexdigest()
 
-        login = self.load("https://webshare.cz/api/login/",
-                          post={'digest'           : digest,
-                                'keep_logged_in'   : 1,
-                                'password'         : password,
-                                'username_or_email': user,
-                                'wst'              : ""})
+        login = req.load("https://webshare.cz/api/login/",
+                         post={'digest'           : digest,
+                               'keep_logged_in'   : 1,
+                               'password'         : password,
+                               'username_or_email': user,
+                               'wst'              : ""},
+                         decode=True)
 
         if "<status>OK</status>" not in login:
-            self.fail_login()
+            self.wrongPassword()
 
-        data['wst'] = re.search('<token>(.+)</token>', login).group(1)
+        self.infos['wst'] = re.search('<token>(.+)</token>', login).group(1)

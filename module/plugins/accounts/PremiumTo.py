@@ -1,17 +1,12 @@
 # -*- coding: utf-8 -*-
 
-from module.plugins.internal.MultiAccount import MultiAccount
+from module.plugins.Account import Account
 
 
-class PremiumTo(MultiAccount):
+class PremiumTo(Account):
     __name__    = "PremiumTo"
     __type__    = "account"
-    __version__ = "0.15"
-    __status__  = "testing"
-
-    __config__ = [("mh_mode"    , "all;listed;unlisted", "Filter hosters to use"        , "all"),
-                  ("mh_list"    , "str"                , "Hoster list (comma separated)", ""   ),
-                  ("mh_interval", "int"                , "Reload interval in minutes"   , 60   )]
+    __version__ = "0.08"
 
     __description__ = """Premium.to account plugin"""
     __license__     = "GPLv3"
@@ -20,16 +15,9 @@ class PremiumTo(MultiAccount):
                        ("stickell", "l.stickell@yahoo.it")]
 
 
-    def grab_hosters(self, user, password, data):
-        html = self.load("http://premium.to/api/hosters.php",
-                         get={'username': user, 'password': password})
-        return [x for x in map(str.strip, html.replace("\"", "").split(",")) if x]
-
-
-    def grab_info(self, user, password, data):
-        traffic = self.load("http://premium.to/api/straffic.php",  #@TODO: Revert to `https` in 0.4.10
-                            get={'username': user,
-                                 'password': password})
+    def loadAccountInfo(self, user, req):
+        traffic = req.load("http://premium.to/api/straffic.php",
+                           get={'username': self.username, 'password': self.password})
 
         if "wrong username" not in traffic:
             trafficleft = sum(map(float, traffic.split(';'))) / 1024  #@TODO: Remove `/ 1024` in 0.4.10
@@ -38,10 +26,12 @@ class PremiumTo(MultiAccount):
             return {'premium': False, 'trafficleft': None, 'validuntil': None}
 
 
-    def signin(self, user, password, data):
-        authcode = self.load("http://premium.to/api/getauthcode.php",  #@TODO: Revert to `https` in 0.4.10
-                             get={'username': user,
-                                  'password': password})
+    def login(self, user, data, req):
+        self.username = user
+        self.password = data['password']
+        authcode = req.load("http://premium.to/api/getauthcode.php",
+                            get={'username': user, 'password': self.password},
+                            decode=True)
 
         if "wrong username" in authcode:
-            self.fail_login()
+            self.wrongPassword()

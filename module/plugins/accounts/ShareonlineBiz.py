@@ -2,53 +2,51 @@
 
 import re
 
-from module.plugins.internal.Account import Account
-from module.plugins.internal.misc import set_cookie
+from module.plugins.Account import Account
 
 
 class ShareonlineBiz(Account):
     __name__    = "ShareonlineBiz"
     __type__    = "account"
-    __version__ = "0.45"
-    __status__  = "testing"
+    __version__ = "0.31"
 
     __description__ = """Share-online.biz account plugin"""
     __license__     = "GPLv3"
     __authors__     = [("Walter Purcaro", "vuolter@gmail.com")]
 
 
-    def api_response(self, user, password):
-        res = self.load("https://api.share-online.biz/cgi-bin",
+    def api_response(self, user, req):
+        return req.load("http://api.share-online.biz/cgi-bin",
                         get={'q'       : "userdetails",
                              'aux'     : "traffic",
                              'username': user,
-                             'password': password},
-                        decode=False)
-
-        api = dict(line.split("=") for line in res.splitlines() if "=" in line)
-
-        if not 'a' in api:
-            self.fail_login(res.strip('*'))
-
-        return api
+                             'password': self.getAccountData(user)['password']})
 
 
-    def grab_info(self, user, password, data):
+    def loadAccountInfo(self, user, req):
         premium     = False
         validuntil  = None
         trafficleft = -1
         maxtraffic  = 100 * 1024 * 1024 * 1024  #: 100 GB
 
-        api_info = self.api_response(user, password)
+        api = {}
+        for line in self.api_response(user, req).splitlines():
+            if "=" in line:
+                key, value = line.split("=")
+                api[key] = value
 
-        premium    = api_info['group'] in ("PrePaid", "Premium", "Penalty-Premium", "VIP", "VIP-Special")
-        validuntil = float(api_info['expire_date'])
-        traffic    = float(api_info['traffic_1d'].split(";")[0])
+        self.logDebug(api)
 
-        if maxtraffic > traffic:
+        if api['a'].lower() != "not_available":
+            req.cj.setCookie("share-online.biz", 'a', api['a'])
+
+            premium = api['group'] in ("Premium", "PrePaid")
+
+            validuntil = float(api['expire_date'])
+
+            traffic     = float(api['traffic_1d'].split(";")[0])
+            maxtraffic  = max(maxtraffic, traffic)
             trafficleft = maxtraffic - traffic
-        else:
-            trafficleft = -1
 
         maxtraffic  /= 1024  #@TODO: Remove `/ 1024` in 0.4.10
         trafficleft /= 1024  #@TODO: Remove `/ 1024` in 0.4.10
@@ -59,6 +57,9 @@ class ShareonlineBiz(Account):
                 'maxtraffic' : maxtraffic}
 
 
-    def signin(self, user, password, data):
-        api_info = self.api_response(user, password)
-        set_cookie(self.req.cj, "share-online.biz", 'a', api_info['a'])
+    def login(self, user, data, req):
+        html = self.api_response(user, req)
+        err  = re.search(r'\*\*(.+?)\*\*', html)
+        if err:
+            self.logError(err.group(1))
+            self.wrongPassword()

@@ -2,51 +2,45 @@
 
 import re
 
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class PromptfileCom(SimpleHoster):
     __name__    = "PromptfileCom"
     __type__    = "hoster"
-    __version__ = "0.18"
-    __status__  = "testing"
+    __version__ = "0.13"
 
     __pattern__ = r'https?://(?:www\.)?promptfile\.com/'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Promptfile.com hoster plugin"""
     __license__     = "GPLv3"
-    __authors__     = [("igel", "igelkun@myopera.com"),
-                        ("ondrej", "git@ondrej.it")]
+    __authors__     = [("igel", "igelkun@myopera.com")]
 
 
-    INFO_PATTERN    = r'<span style=".+?" title=".+?">(?P<N>.*?) \((?P<S>[\d.,]+) (?P<U>[\w^_]+)\)</span>'
-    OFFLINE_PATTERN = r'<span style=".+?" title="File Not Found">File Not Found</span>'
+    INFO_PATTERN = r'<span style="[^"]*" title="[^"]*">(?P<N>.*?) \((?P<S>[\d.,]+) (?P<U>[\w^_]+)\)</span>'
+    OFFLINE_PATTERN = r'<span style="[^"]*" title="File Not Found">File Not Found</span>'
 
-    CHASH_PATTERN     = r'input.+"([a-z\d]{10,})".+"([a-z\d]{10,})"'
-    MODIFY_PATTERN    = r'\$\("#chash"\)\.val\("(.+)"\+\$\("#chash"\)'
-    LINK_FREE_PATTERN = r'<a href="(http://www\.promptfile\.com/file/[^"]+)'
+    CHASH_PATTERN = r'<input type="hidden" name="chash" value="([^"]*)" />'
+    LINK_FREE_PATTERN = r'<a href=\"(.+)\" target=\"_blank\" class=\"view_dl_link\">Download File</a>'
 
 
-    def handle_free(self, pyfile):
-        #: STAGE 1: get link to continue
-        m = re.search(self.CHASH_PATTERN, self.data)
+    def handleFree(self, pyfile):
+        # STAGE 1: get link to continue
+        m = re.search(self.CHASH_PATTERN, self.html)
         if m is None:
             self.error(_("CHASH_PATTERN not found"))
+        chash = m.group(1)
+        self.logDebug("Read chash %s" % chash)
+        # continue to stage2
+        self.html = self.load(pyfile.url, decode=True, post={'chash': chash})
 
-        mod = re.search(self.MODIFY_PATTERN, self.data)
-        payload = {
-            m.group(1): mod.group(1) + m.group(2)
-        }
+        # STAGE 2: get the direct link
+        m = re.search(self.LINK_FREE_PATTERN, self.html)
+        if m is None:
+            self.error(_("LINK_FREE_PATTERN not found"))
 
-        self.log_debug("Read chash: " + str(payload))
+        self.link = m.group(1)
 
-        #: Continue to stage2
-        self.data = self.load(pyfile.url, post=payload)
 
-        #: STAGE 2: get the direct link
-        return super(PromptfileCom, self).handle_free(pyfile)
+getInfo = create_getInfo(PromptfileCom)

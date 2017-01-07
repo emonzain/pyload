@@ -3,17 +3,15 @@
 import re
 import time
 
-import pycurl
+from pycurl import REFERER
 
-from module.plugins.internal.Account import Account
-from module.network.HTTPRequest import BadHeader
+from module.plugins.Account import Account
 
 
 class OneFichierCom(Account):
     __name__    = "OneFichierCom"
     __type__    = "account"
-    __version__ = "0.22"
-    __status__  = "testing"
+    __version__ = "0.12"
 
     __description__ = """1fichier.com account plugin"""
     __license__     = "GPLv3"
@@ -21,50 +19,41 @@ class OneFichierCom(Account):
                        ("Walter Purcaro", "vuolter@gmail.com")]
 
 
-    VALID_UNTIL_PATTERN = r'Your Premium offer subscription is valid until <span style="font-weight:bold">(\d+\-\d+\-\d+)'
+    VALID_UNTIL_PATTERN = r'Your Premium Status will end the (\d+/\d+/\d+)'
 
 
-    def grab_info(self, user, password, data):
+    def loadAccountInfo(self, user, req):
         validuntil = None
         trafficleft = -1
         premium = None
 
-        html = self.load("https://1fichier.com/console/abo.pl")
+        html = req.load("https://1fichier.com/console/abo.pl")
 
         m = re.search(self.VALID_UNTIL_PATTERN, html)
-        if m is not None:
+        if m:
             expiredate = m.group(1)
-            self.log_debug("Expire date: " + expiredate)
+            self.logDebug("Expire date: " + expiredate)
 
             try:
-                validuntil = time.mktime(time.strptime(expiredate, "%Y-%m-%d"))
-
+                validuntil = time.mktime(time.strptime(expiredate, "%d/%m/%Y"))
             except Exception, e:
-                self.log_error(e, trace=True)
-
+                self.logError(e)
             else:
                 premium = True
 
         return {'validuntil': validuntil, 'trafficleft': trafficleft, 'premium': premium or False}
 
 
-    def signin(self, user, password, data):
-        self.req.http.c.setopt(pycurl.REFERER, "https://1fichier.com/login.pl?lg=en")
+    def login(self, user, data, req):
+        req.http.c.setopt(REFERER, "https://1fichier.com/login.pl?lg=en")
 
-        try:
-            html = self.load("https://1fichier.com/login.pl?lg=en",
-                             post={'mail'   : user,
-                                   'pass'   : password,
-                                   'It'     : "on",
-                                   'purge'  : "off",
-                                   'valider': "Send"})
+        html = req.load("https://1fichier.com/login.pl?lg=en",
+                        post={'mail'   : user,
+                              'pass'   : data['password'],
+                              'It'     : "on",
+                              'purge'  : "off",
+                              'valider': "Send"},
+                        decode=True)
 
-            if any(_x in html for _x in
-                   ('>Invalid username or Password', '>Invalid email address', '>Invalid password')):
-                self.fail_login()
-
-        except BadHeader, e:
-            if e.code == 403:
-                self.fail_login()
-            else:
-                raise
+        if '>Invalid email address' in html or '>Invalid password' in html:
+            self.wrongPassword()

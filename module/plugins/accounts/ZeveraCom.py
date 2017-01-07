@@ -2,18 +2,13 @@
 
 import time
 
-from module.plugins.internal.MultiAccount import MultiAccount
+from module.plugins.Account import Account
 
 
-class ZeveraCom(MultiAccount):
+class ZeveraCom(Account):
     __name__    = "ZeveraCom"
     __type__    = "account"
-    __version__ = "0.32"
-    __status__  = "testing"
-
-    __config__ = [("mh_mode"    , "all;listed;unlisted", "Filter hosters to use"        , "all"),
-                  ("mh_list"    , "str"                , "Hoster list (comma separated)", ""   ),
-                  ("mh_interval", "int"                , "Reload interval in minutes"   , 60   )]
+    __version__ = "0.26"
 
     __description__ = """Zevera.com account plugin"""
     __license__     = "GPLv3"
@@ -21,12 +16,7 @@ class ZeveraCom(MultiAccount):
                        ("Walter Purcaro", "vuolter@gmail.com")]
 
 
-    PLUGIN_DOMAIN = "zevera.com"
-
-
-    def grab_hosters(self, user, password, data):
-        html = self.api_response(user, password, cmd="gethosters")
-        return [x.strip() for x in html.split(",")]
+    HOSTER_DOMAIN = "zevera.com"
 
 
     def __init__(self, manager, accounts):  #@TODO: remove in 0.4.10
@@ -35,19 +25,19 @@ class ZeveraCom(MultiAccount):
 
 
     def init(self):
-        if not self.PLUGIN_DOMAIN:
-            self.log_error(_("Missing PLUGIN_DOMAIN"))
+        if not self.HOSTER_DOMAIN:
+            self.logError(_("Missing HOSTER_DOMAIN"))
 
         if not hasattr(self, "API_URL"):
-            self.API_URL = "http://api.%s/jDownloader.ashx" % (self.PLUGIN_DOMAIN or "")
+            self.API_URL = "http://api.%s/jDownloader.ashx" % (self.HOSTER_DOMAIN or "")
 
 
-    def grab_info(self, user, password, data):
+    def loadAccountInfo(self, user, req):
         validuntil  = None
         trafficleft = None
         premium     = False
 
-        api = self.api_response(user, password)
+        api = self.api_response(req)
 
         if "No trafic" not in api and api['endsubscriptiondate'] != "Expired!":
             validuntil  = time.mktime(time.strptime(api['endsubscriptiondate'], "%Y/%m/%d %H:%M:%S"))
@@ -57,23 +47,27 @@ class ZeveraCom(MultiAccount):
         return {'validuntil': validuntil, 'trafficleft': trafficleft, 'premium': premium}
 
 
-    def signin(self, user, password, data):
-        if self.api_response(user, password) == "No trafic":
-            self.fail_login()
+    def login(self, user, data, req):
+        self.user     = user
+        self.password = data['password']
+
+        if self.api_response(req) == "No trafic":
+            self.wrongPassword()
 
 
-    def api_response(self, user, password=None, just_header=False, **kwargs):
+    def api_response(self, req, just_header=False, **kwargs):
         get_data = {'cmd'  : "accountinfo",
-                    'login': user,
-                    'pass' : password}
+                    'login': self.user,
+                    'pass' : self.password}
 
         get_data.update(kwargs)
 
-        res = self.load(self.API_URL,
-                        get=get_data,
-                        just_header=just_header)
+        res = req.load(self.API_URL,
+                       get=get_data,
+                       just_header=just_header,
+                       decode=True)
 
-        self.log_debug(res)
+        self.logDebug(res)
 
         if ':' in res:
             if not just_header:

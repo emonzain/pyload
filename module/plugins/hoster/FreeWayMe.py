@@ -1,21 +1,15 @@
 ﻿# -*- coding: utf-8 -*-
 
-from module.plugins.internal.MultiHoster import MultiHoster
+from module.plugins.internal.MultiHoster import MultiHoster, create_getInfo
 
 
 class FreeWayMe(MultiHoster):
     __name__    = "FreeWayMe"
     __type__    = "hoster"
-    __version__ = "0.23"
-    __status__  = "testing"
+    __version__ = "0.16"
 
-    __pattern__ = r'https?://(?:www\.)?free-way\.(bz|me)/.+'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True ),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True ),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , False),
-                   ("chk_filesize", "bool", "Check file size"                                  , True ),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10   ),
-                   ("revertfailed", "bool", "Revert to standard download if fails"             , True )]
+    __pattern__ = r'https://(?:www\.)?free-way\.me/.+'
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """FreeWayMe multi-hoster plugin"""
     __license__     = "GPLv3"
@@ -23,35 +17,38 @@ class FreeWayMe(MultiHoster):
 
 
     def setup(self):
-        self.resume_download = False
+        self.resumeDownload = False
         self.multiDL        = self.premium
-        self.chunk_limit     = 1
+        self.chunkLimit     = 1
 
 
-    def handle_premium(self, pyfile):
-        user, data = self.account.select()
+    def handlePremium(self, pyfile):
+        user, data = self.account.selectAccount()
 
         for _i in xrange(5):
-            #: Try it five times
-            header = self.load("http://www.free-way.bz/load.php",  #@TODO: Revert to `https` in 0.4.10
+            # try it five times
+            header = self.load("https://www.free-way.me/load.php",
                                get={'multiget': 7,
                                     'url'     : pyfile.url,
                                     'user'    : user,
-                                    'pw'      : self.account.get_login('password'),
+                                    'pw'      : self.account.getAccountData(user)['password'],
                                     'json'    : ""},
                                just_header=True)
 
             if 'location' in header:
-                headers = self.load(header.get('location'), just_header=True)
+                headers = self.load(header['location'], just_header=True)
                 if headers['code'] == 500:
-                    #: Error on 2nd stage
-                    self.log_error(_("Error [stage2]"))
+                    # error on 2nd stage
+                    self.logError(_("Error [stage2]"))
                 else:
-                    #: Seems to work..
-                    self.download(header.get('location'))
+                    # seems to work..
+                    self.download(header['location'])
                     break
             else:
-                #: Error page first stage
-                self.log_error(_("Error [stage1]"))
+                # error page first stage
+                self.logError(_("Error [stage1]"))
 
             #@TODO: handle errors
+
+
+getInfo = create_getInfo(FreeWayMe)

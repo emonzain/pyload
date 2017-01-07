@@ -2,18 +2,16 @@
 
 import re
 
-from module.plugins.internal.Hoster import Hoster
+from module.plugins.Hoster import Hoster
 
 
 class VeehdCom(Hoster):
     __name__    = "VeehdCom"
     __type__    = "hoster"
-    __version__ = "0.28"
-    __status__  = "testing"
+    __version__ = "0.23"
 
     __pattern__ = r'http://veehd\.com/video/\d+_\S+'
-    __config__  = [("activated", "bool", "Activated", True),
-                   ("filename_spaces", "bool", "Allow spaces in filename", False),
+    __config__  = [("filename_spaces", "bool", "Allow spaces in filename", False),
                    ("replacement_char", "str", "Filename replacement character", "_")]
 
     __description__ = """Veehd.com hoster plugin"""
@@ -37,47 +35,46 @@ class VeehdCom(Hoster):
 
     def download_html(self):
         url = self.pyfile.url
-        self.log_debug("Requesting page: %s" % url)
-        self.data = self.load(url)
+        self.logDebug("Requesting page: %s" % url)
+        self.html = self.load(url)
 
 
     def file_exists(self):
-        if not self.data:
+        if not self.html:
             self.download_html()
 
-        if '<title>Veehd</title>' in self.data:
+        if '<title>Veehd</title>' in self.html:
             return False
         return True
 
 
     def get_file_name(self):
-        if not self.data:
+        if not self.html:
             self.download_html()
 
-        m = re.search(r'<title.*?>(.+?) on Veehd</title>', self.data)
+        m = re.search(r'<title[^>]*>([^<]+) on Veehd</title>', self.html)
         if m is None:
             self.error(_("Video title not found"))
 
         name = m.group(1)
 
-        #: Replace unwanted characters in filename
-        if self.config.get('filename_spaces'):
+        # replace unwanted characters in filename
+        if self.getConfig('filename_spaces'):
             pattern = '[^\w ]+'
         else:
             pattern = '[^\w.]+'
 
-        return re.sub(pattern, self.config.get('replacement_char'), name) + '.avi'
+        return re.sub(pattern, self.getConfig('replacement_char'), name) + '.avi'
 
 
     def get_file_url(self):
+        """ returns the absolute downloadable filepath
         """
-        Returns the absolute downloadable filepath
-        """
-        if not self.data:
+        if not self.html:
             self.download_html()
 
-        m = re.search(r'<embed type="video/divx" src="(http://([^/]*\.)?veehd\.com/dl/.+?)"',
-                          self.data)
+        m = re.search(r'<embed type="video/divx" src="(http://([^/]*\.)?veehd\.com/dl/[^"]+)"',
+                          self.html)
         if m is None:
             self.error(_("Embedded video url not found"))
 

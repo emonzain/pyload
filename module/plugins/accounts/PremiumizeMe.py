@@ -1,70 +1,49 @@
 # -*- coding: utf-8 -*-
 
-from module.plugins.internal.MultiAccount import MultiAccount
-from module.plugins.internal.misc import json
+from module.plugins.Account import Account
+
+from module.common.json_layer import json_loads
 
 
-class PremiumizeMe(MultiAccount):
+class PremiumizeMe(Account):
     __name__    = "PremiumizeMe"
     __type__    = "account"
-    __version__ = "0.24"
-    __status__  = "testing"
-
-    __config__ = [("mh_mode"    , "all;listed;unlisted", "Filter hosters to use"        , "all"),
-                  ("mh_list"    , "str"                , "Hoster list (comma separated)", ""   ),
-                  ("mh_interval", "int"                , "Reload interval in minutes"   , 60   )]
+    __version__ = "0.13"
 
     __description__ = """Premiumize.me account plugin"""
     __license__     = "GPLv3"
     __authors__     = [("Florian Franzen", "FlorianFranzen@gmail.com")]
 
 
-    def grab_hosters(self, user, password, data):
-        #: Get supported hosters list from premiumize.me using the
-        #: json API v1 (see https://secure.premiumize.me/?show=api)
-        answer = self.load("http://api.premiumize.me/pm-api/v1.php",  #@TODO: Revert to `https` in 0.4.10
-                           get={'method'       : "hosterlist",
-                                'params[login]': user,
-                                'params[pass]' : password})
-        data = json.loads(answer)
+    def loadAccountInfo(self, user, req):
+        # Get user data from premiumize.me
+        status = self.getAccountStatus(user, req)
+        self.logDebug(status)
 
-        #: If account is not valid thera are no hosters available
-        if data['status'] != 200:
-            return []
+        # Parse account info
+        account_info = {"validuntil": float(status['result']['expires']),
+                        "trafficleft": max(0, status['result']['trafficleft_bytes'] / 1024)}  #@TODO: Remove `/ 1024` in 0.4.10
 
-        #: Extract hosters from json file
-        return data['result']['hosterlist']
-
-
-    def grab_info(self, user, password, data):
-        #: Get user data from premiumize.me
-        status = self.get_account_status(user, password)
-        self.log_debug(status)
-
-        #: Parse account info
-        account_info = {'validuntil': float(status['result']['expires']),
-                        'trafficleft': max(0, status['result']['trafficleft_bytes'] / 1024)}  #@TODO: Remove `/ 1024` in 0.4.10
-
-        if status['result']['type'] != 'free':
-            account_info['premium'] = True
+        if status['result']['type'] == 'free':
+            account_info['premium'] = False
 
         return account_info
 
 
-    def signin(self, user, password, data):
-        #: Get user data from premiumize.me
-        status = self.get_account_status(user, password)
+    def login(self, user, data, req):
+        # Get user data from premiumize.me
+        status = self.getAccountStatus(user, req)
 
-        #: Check if user and password are valid
+        # Check if user and password are valid
         if status['status'] != 200:
-            self.fail_login()
+            self.wrongPassword()
 
 
-    def get_account_status(self, user, password):
-        #: Use premiumize.me API v1 (see https://secure.premiumize.me/?show=api)
-        #: To retrieve account info and return the parsed json answer
-        answer = self.load("http://api.premiumize.me/pm-api/v1.php",  #@TODO: Revert to `https` in 0.4.10
+    def getAccountStatus(self, user, req):
+        # Use premiumize.me API v1 (see https://secure.premiumize.me/?show=api)
+        # to retrieve account info and return the parsed json answer
+        answer = req.load("https://api.premiumize.me/pm-api/v1.php",
                            get={'method'       : "accountstatus",
                                 'params[login]': user,
-                                'params[pass]' : password})
-        return json.loads(answer)
+                                'params[pass]' : self.getAccountData(user)['password']})
+        return json_loads(answer)

@@ -1,22 +1,16 @@
 # -*- coding: utf-8 -*-
 
-from module.plugins.captcha.ReCaptcha import ReCaptcha
-from module.plugins.captcha.SolveMedia import SolveMedia
-from module.plugins.internal.SimpleHoster import SimpleHoster
+from module.plugins.internal.CaptchaService import SolveMedia
+from module.plugins.internal.SimpleHoster import SimpleHoster, create_getInfo
 
 
 class MediafireCom(SimpleHoster):
     __name__    = "MediafireCom"
     __type__    = "hoster"
-    __version__ = "0.95"
-    __status__  = "testing"
+    __version__ = "0.85"
 
-    __pattern__ = r'https?://(?:www\.)?mediafire\.com/(file/|view/\??|download(\.php\?|/)|\?)(?P<ID>\w+)'
-    __config__  = [("activated"   , "bool", "Activated"                                        , True),
-                   ("use_premium" , "bool", "Use premium account if available"                 , True),
-                   ("fallback"    , "bool", "Fallback to free download if premium fails"       , True),
-                   ("chk_filesize", "bool", "Check file size"                                  , True),
-                   ("max_wait"    , "int" , "Reconnect if waiting time is greater than minutes", 10  )]
+    __pattern__ = r'https?://(?:www\.)?mediafire\.com/(file/|view/\??|download(\.php\?|/))\w+'
+    __config__  = [("use_premium", "bool", "Use premium account if available", True)]
 
     __description__ = """Mediafire.com hoster plugin"""
     __license__     = "GPLv3"
@@ -36,53 +30,34 @@ class MediafireCom(SimpleHoster):
 
 
     def setup(self):
-        self.resume_download = True
-        self.multiDL         = True
+        self.resumeDownload = True
+        self.multiDL        = True
 
 
-    def handle_captcha(self):
-        solvemedia  = SolveMedia(self.pyfile)
+    def handleFree(self, pyfile):
+        solvemedia  = SolveMedia(self)
         captcha_key = solvemedia.detect_key()
 
         if captcha_key:
-            self.captcha = solvemedia
             response, challenge = solvemedia.challenge(captcha_key)
-            self.data = self.load("http://www.mediafire.com/?" + self.info['pattern']['ID'],
+            self.html = self.load(pyfile.url,
                                   post={'adcopy_challenge': challenge,
-                                        'adcopy_response' : response})
-            return
+                                        'adcopy_response' : response},
+                                  decode=True)
 
-        recaptcha   = ReCaptcha(self.pyfile)
-        captcha_key = recaptcha.detect_key()
-
-        if captcha_key:
-            url, inputs = self.parse_html_form('name="form_captcha"')
-            self.log_debug(("form_captcha url:%s inputs:%s") % (url, inputs))
-
-            if url:
-                self.captcha = recaptcha
-                response, challenge = recaptcha.challenge(captcha_key)
-
-                inputs['g-recaptcha-response'] = response
-                self.data = self.load(self.fixurl(url), post=inputs)
-
-            else:
-                self.fail("ReCaptcha form not found")
-
-
-    def handle_free(self, pyfile):
-        self.handle_captcha()
-
-        if self.PASSWORD_PATTERN in self.data:
-            password = self.get_password()
+        if self.PASSWORD_PATTERN in self.html:
+            password = self.getPassword()
 
             if not password:
                 self.fail(_("No password found"))
             else:
-                self.log_info(_("Password protected link, trying: ") + password)
-                self.data = self.load(self.link, post={'downloadp': password})
+                self.logInfo(_("Password protected link, trying: ") + password)
+                self.html = self.load(self.link, post={'downloadp': password})
 
-                if self.PASSWORD_PATTERN in self.data:
-                    self.fail(_("Wrong password"))
+                if self.PASSWORD_PATTERN in self.html:
+                    self.fail(_("Incorrect password"))
 
-        return super(MediafireCom, self).handle_free(pyfile)
+        return super(MediafireCom, self).handleFree(pyfile)
+
+
+getInfo = create_getInfo(MediafireCom)

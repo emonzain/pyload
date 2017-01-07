@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import re
-import urllib
 
-from module.plugins.internal.Hoster import Hoster
+from urllib import unquote
+
+from module.plugins.Hoster import Hoster
 
 
 class YourfilesTo(Hoster):
     __name__    = "YourfilesTo"
     __type__    = "hoster"
-    __version__ = "0.27"
-    __status__  = "testing"
+    __version__ = "0.22"
 
     __pattern__ = r'http://(?:www\.)?yourfiles\.(to|biz)/\?d=\w+'
-    __config__  = [("activated", "bool", "Activated", True)]
 
     __description__ = """Youfiles.to hoster plugin"""
     __license__     = "GPLv3"
@@ -33,16 +32,18 @@ class YourfilesTo(Hoster):
 
         self.pyfile.name = self.get_file_name()
 
-        self.wait(self.get_waiting_time())
+        wait_time = self.get_waiting_time()
+        self.setWait(wait_time)
+        self.wait()
 
 
     def get_waiting_time(self):
-        if not self.data:
+        if not self.html:
             self.download_html()
 
-        #: var zzipitime = 15
-        m = re.search(r'var zzipitime = (\d+);', self.data)
-        if m is not None:
+        #var zzipitime = 15;
+        m = re.search(r'var zzipitime = (\d+);', self.html)
+        if m:
             sec = int(m.group(1))
         else:
             sec = 0
@@ -52,37 +53,35 @@ class YourfilesTo(Hoster):
 
     def download_html(self):
         url = self.pyfile.url
-        self.data = self.load(url)
+        self.html = self.load(url)
 
 
     def get_file_url(self):
+        """ returns the absolute downloadable filepath
         """
-        Returns the absolute downloadable filepath
-        """
-        url = re.search(r"var bla = '(.*?)';", self.data)
+        url = re.search(r"var bla = '(.*?)';", self.html)
         if url:
             url = url.group(1)
-            url = urllib.unquote(url.replace("http://http:/http://", "http://").replace("dumdidum", ""))
+            url = unquote(url.replace("http://http:/http://", "http://").replace("dumdidum", ""))
             return url
         else:
             self.error(_("Absolute filepath not found"))
 
 
     def get_file_name(self):
-        if not self.data:
+        if not self.html:
             self.download_html()
 
-        return re.search("<title>(.*)</title>", self.data).group(1)
+        return re.search("<title>(.*)</title>", self.html).group(1)
 
 
     def file_exists(self):
+        """ returns True or False
         """
-        Returns True or False
-        """
-        if not self.data:
+        if not self.html:
             self.download_html()
 
-        if re.search(r'HTTP Status 404', self.data):
+        if re.search(r"HTTP Status 404", self.html) is not None:
             return False
         else:
             return True
