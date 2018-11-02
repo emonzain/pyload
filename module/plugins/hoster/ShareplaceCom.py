@@ -1,90 +1,44 @@
 # -*- coding: utf-8 -*-
 
-import re
 import urllib
+import re
 
-from module.plugins.internal.Hoster import Hoster
+from ..internal.SimpleHoster import SimpleHoster
 
 
-class ShareplaceCom(Hoster):
-    __name__    = "ShareplaceCom"
-    __type__    = "hoster"
-    __version__ = "0.17"
-    __status__  = "testing"
+class ShareplaceCom(SimpleHoster):
+    __name__ = "ShareplaceCom"
+    __type__ = "hoster"
+    __version__ = "0.19"
+    __status__ = "testing"
 
     __pattern__ = r'http://(?:www\.)?shareplace\.(com|org)/\?\w+'
-    __config__  = [("activated", "bool", "Activated", True)]
+    __config__ = [("activated", "bool", "Activated", True)]
 
     __description__ = """Shareplace.com hoster plugin"""
-    __license__     = "GPLv3"
-    __authors__     = [("ACCakut", None)]
+    __license__ = "GPLv3"
+    __authors__ = [("ACCakut", None),
+                   ("GammaC0de", "nitzo2001[AT]yahoo[DOT]com")]
 
+    NAME_PATTERN = r'Filename:</font></b>\s*(?P<N>.+?)<b><br>'
+    SIZE_PATTERN = r'Filesize:</font></b>\s*(?P<S>[\d.,]+) (?P<U>[\w^_]+)<b><br>'
 
-    def process(self, pyfile):
-        self.pyfile = pyfile
-        self.prepare()
-        self.download(self.get_file_url())
+    TEMP_OFFLINE_PATTERN = r'^unmatchable$'
+    OFFLINE_PATTERN = r'Your requested file is not found'
 
+    WAIT_PATTERN = r'var zzipitime = (\d+);'
 
-    def prepare(self):
-        if not self.file_exists():
-            self.offline()
+    def handle_free(self, pyfile):
+        response = self.captcha.decrypt("http://shareplace.com/captcha.php")
 
-        self.pyfile.name = self.get_file_name()
+        self.data = self.load(pyfile.url, post={'captchacode': response})
+        if "Captcha number error or expired" in self.data:
+            self.retry_captcha()
 
-        self.wait(self.get_waiting_time())
+        self.captcha.correct()
+        self.check_errors()
 
-
-    def get_waiting_time(self):
-        if not self.data:
-            self.download_html()
-
-        #: var zzipitime = 15
-        m = re.search(r'var zzipitime = (\d+);', self.data)
+        m = re.search(r"var beer = '(.+?)'", self.data)
         if m is not None:
-            sec = int(m.group(1))
-        else:
-            sec = 0
-
-        return sec
-
-
-    def download_html(self):
-        url = re.sub("shareplace.com\/\?", "shareplace.com//index1.php/?a=", self.pyfile.url)
-        self.data = self.load(url)
-
-
-    def get_file_url(self):
-        """
-        Returns the absolute downloadable filepath
-        """
-        url = re.search(r"var beer = '(.*?)';", self.data)
-        if url:
-            url = url.group(1)
-            url = urllib.unquote(
-                url.replace("http://http:/", "").replace("vvvvvvvvv", "").replace("lllllllll", "").replace(
-                    "teletubbies", ""))
-            self.log_debug("URL: %s" % url)
-            return url
-        else:
-            self.error(_("Absolute filepath not found"))
-
-
-    def get_file_name(self):
-        if not self.data:
-            self.download_html()
-
-        return re.search("<title>\s*(.*?)\s*</title>", self.data).group(1)
-
-
-    def file_exists(self):
-        """
-        Returns True or False
-        """
-        if not self.data:
-            self.download_html()
-
-        if re.search(r'HTTP Status 404', self.data):
-            return False
-        else:
-            return True
+            self.link  = urllib.unquote(urllib.unquote(m.group(1).replace("vvvvvvvvv", "")
+                                                       .replace("lllllllll", "")).replace("teletubbies", ""))[13:]
