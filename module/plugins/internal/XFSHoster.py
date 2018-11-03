@@ -13,14 +13,13 @@ from .SimpleHoster import SimpleHoster
 class XFSHoster(SimpleHoster):
     __name__ = "XFSHoster"
     __type__ = "hoster"
-    __version__ = "0.79"
+    __version__ = "0.81"
     __status__ = "stable"
 
     __pattern__ = r'^unmatchable$'
     __config__ = [("activated", "bool", "Activated", True),
                   ("use_premium", "bool", "Use premium account if available", True),
-                  ("fallback", "bool",
-                   "Fallback to free download if premium fails", True),
+                  ("fallback", "bool", "Fallback to free download if premium fails", True),
                   ("chk_filesize", "bool", "Check file size", True),
                   ("max_wait", "int", "Reconnect if waiting time is greater than minutes", 10)]
 
@@ -204,9 +203,11 @@ class XFSHoster(SimpleHoster):
 
                     wait_time = parse_time(waitmsg)
                     self.set_wait(wait_time)
-                    self.set_reconnect(False)
-                    if wait_time < self.config.get('max_wait', 10) * 60:
+                    if wait_time < self.config.get('max_wait', 10) * 60 or \
+                            self.pyload.config.get('reconnect', 'activated') is False or \
+                            self.pyload.api.isTimeReconnect() is False:
                         self.handle_captcha(inputs)
+
                     self.wait()
 
                 else:
@@ -262,8 +263,7 @@ class XFSHoster(SimpleHoster):
 
         if captcha_key:
             self.captcha = recaptcha
-            inputs['recaptcha_response_field'], inputs[
-                'recaptcha_challenge_field'] = recaptcha.challenge(captcha_key)
+            inputs['g-recaptcha-response'], challenge = recaptcha.challenge(captcha_key)
             return
 
         solvemedia = SolveMedia(self.pyfile)

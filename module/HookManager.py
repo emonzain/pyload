@@ -292,14 +292,16 @@ class HookManager:
     def addEvent(self, event, func):
         """Adds an event listener for event name"""
         if event in self.events:
-            self.events[event].append(func)
+            if func not in self.events[event]:
+                self.events[event].append(func)
         else:
             self.events[event] = [func]
 
     def removeEvent(self, event, func):
         """removes previously added event listener"""
         if event in self.events:
-            self.events[event].remove(func)
+            if func in self.events[event]:
+                self.events[event].remove(func)
 
     def dispatchEvent(self, event, *args):
         """dispatches event with args"""

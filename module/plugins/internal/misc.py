@@ -41,7 +41,7 @@ except ImportError:
 class misc(object):
     __name__ = "misc"
     __type__ = "plugin"
-    __version__ = "0.44"
+    __version__ = "0.50"
     __status__ = "stable"
 
     __pattern__ = r'^unmatchable$'
@@ -175,6 +175,8 @@ class Periodical(object):
         finally:
             self.cb = None
 
+    stopped = property(lambda self: self.cb == None)
+
     def _task(self, threaded):
         try:
             self.task()
@@ -182,7 +184,8 @@ class Periodical(object):
         except Exception, e:
             self.plugin.log_error(_("Error performing periodical task"), e)
 
-        self.restart(threaded=threaded, delay=self.interval)
+        if not self.stopped:
+            self.restart(threaded=threaded, delay=self.interval)
 
 
 class SimpleQueue(object):
@@ -243,11 +246,11 @@ def threaded(fn):
 def format_time(value):
     dt = datetime.datetime(1, 1, 1) + \
         datetime.timedelta(seconds=abs(int(value)))
-    days = ("%d days and " % (dt.day - 1)) if dt.day > 1 else ""
-    return days + ", ".join("%d %ss" % (getattr(dt, attr), attr)
+    days = ("%d days" % (dt.day - 1)) if dt.day > 1 else ""
+    tm = ", ".join("%d %ss" % (getattr(dt, attr), attr)
                             for attr in ("hour", "minute", "second")
                             if getattr(dt, attr))
-
+    return days + (" and " if days and tm else "") + tm
 
 def format_size(value):
     for unit in ('B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'):
@@ -831,7 +834,7 @@ def parse_html_form(attr_str, html, input_names={}):
             else:
                 return action, inputs  #: Passed attribute check
 
-    return {}, None  #: No matching form found
+    return None, None  #: No matching form found
 
 
 def chunks(iterable, size):
